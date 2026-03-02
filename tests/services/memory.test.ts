@@ -91,6 +91,38 @@ describe('MemoryService', () => {
     });
   });
 
+  describe('searchMemory boundaries', () => {
+    beforeEach(async () => {
+      await service.saveMemory({ content: 'Test 1', metadata: { summary: 'Test 1' } });
+      await service.saveMemory({ content: 'Test 2', metadata: { summary: 'Test 2' } });
+    });
+
+    it('should return all memories with empty query', async () => {
+      const results = await service.searchMemory({ query: '', limit: 10 });
+      expect(results.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('should return empty array for non-existent query', async () => {
+      const results = await service.searchMemory({ query: 'xyznonexistent', limit: 10 });
+      expect(results).toEqual([]);
+    });
+
+    it('should return empty array when limit=0', async () => {
+      const results = await service.searchMemory({ query: '', limit: 0 });
+      expect(results).toEqual([]);
+    });
+
+    it('should respect limit parameter', async () => {
+      const results = await service.searchMemory({ query: '', limit: 1 });
+      expect(results.length).toBe(1);
+    });
+
+    it('should handle large limit', async () => {
+      const results = await service.searchMemory({ query: '', limit: 10000 });
+      expect(results.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('getContext', () => {
     it('should get context within token limit', async () => {
       await service.saveMemory({

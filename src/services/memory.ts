@@ -57,6 +57,23 @@ export class MemoryService {
     // 获取所有候选记忆
     let memories = this.memoryRepo.findAll(100);
 
+    // 应用查询过滤（如果提供了查询字符串）
+    if (query && query.trim() !== '') {
+      const searchTerm = query.toLowerCase();
+      memories = memories.filter(m => {
+        const summaryMatch = m.summary?.toLowerCase().includes(searchTerm);
+        // 读取内容文件进行匹配
+        let contentMatch = false;
+        try {
+          const content = this.readContentFromFile(m.contentPath);
+          contentMatch = content.toLowerCase().includes(searchTerm);
+        } catch {
+          // 如果读取失败，忽略内容匹配
+        }
+        return summaryMatch || contentMatch;
+      });
+    }
+
     // 应用时间过滤
     if (dateFilter) {
       memories = memories.filter(m => {
