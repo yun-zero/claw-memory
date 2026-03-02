@@ -1,10 +1,11 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import type { Memory } from '../types.js';
+import type { Memory, IntegratedSummary } from '../types.js';
 
 export interface CreateMemoryInput {
   contentPath: string;
   summary?: string;
+  integratedSummary?: IntegratedSummary;
   importance?: number;
   tokenCount?: number;
 }
@@ -21,12 +22,13 @@ export class MemoryRepository {
     const now = new Date();
 
     this.db.prepare(`
-      INSERT INTO memories (id, content_path, summary, importance, token_count, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO memories (id, content_path, summary, integrated_summary, importance, token_count, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.contentPath,
       input.summary || null,
+      input.integratedSummary ? JSON.stringify(input.integratedSummary) : null,
       input.importance ?? 0.5,
       input.tokenCount ?? 0,
       now.toISOString(),

@@ -26,6 +26,25 @@ describe('MemoryRepository', () => {
       expect(memory.summary).toBe('Test summary');
       expect(memory.importance).toBe(0.8);
     });
+
+    it('should save and retrieve integrated summary', () => {
+      const memory = repo.create({
+        contentPath: '/test/path.md',
+        summary: 'Test summary',
+        integratedSummary: {
+          active_areas: ['技术/AI (5)'],
+          key_topics: ['React', 'OpenClaw'],
+          recent_summary: '本周讨论了AI技术'
+        }
+      });
+
+      const found = repo.findById(memory.id);
+      expect(found.integratedSummary).toEqual({
+        active_areas: ['技术/AI (5)'],
+        key_topics: ['React', 'OpenClaw'],
+        recent_summary: '本周讨论了AI技术'
+      });
+    });
   });
 
   describe('findById', () => {
