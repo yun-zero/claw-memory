@@ -1,0 +1,100 @@
+import Database from 'better-sqlite3';
+
+export function initializeDatabase(db: Database.Database): void {
+  // 1. 记忆表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memories (
+      id TEXT PRIMARY KEY,
+      content_path TEXT NOT NULL,
+      summary TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      token_count INTEGER DEFAULT 0,
+      importance REAL DEFAULT 0.5,
+      access_count INTEGER DEFAULT 0,
+      last_accessed_at TIMESTAMP,
+      is_archived BOOLEAN DEFAULT FALSE,
+      is_duplicate BOOLEAN DEFAULT FALSE,
+      duplicate_of TEXT
+    )
+  `);
+
+  // 2. 实体表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS entities (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      parent_id TEXT,
+      level INTEGER DEFAULT 0,
+      embedding BLOB,
+      metadata JSON,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (parent_id) REFERENCES entities(id)
+    )
+  `);
+
+  // 3. 记忆-实体关联表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memory_entities (
+      memory_id TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      relevance REAL DEFAULT 1.0,
+      source TEXT DEFAULT 'auto',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (memory_id, entity_id),
+      FOREIGN KEY (memory_id) REFERENCES memories(id),
+      FOREIGN KEY (entity_id) REFERENCES entities(id)
+    )
+  `);
+
+  // 4. 实体关系图
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS entity_relations (
+      id TEXT PRIMARY KEY,
+      source_id TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      relation_type TEXT NOT NULL,
+      weight REAL DEFAULT 1.0,
+      evidence_count INTEGER DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (source_id) REFERENCES entities(id),
+      FOREIGN KEY (target_id) REFERENCES entities(id),
+      UNIQUE(source_id, target_id, relation_type)
+    )
+  `);
+
+  // 5. 时间桶
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS time_buckets (
+      date TEXT PRIMARY KEY,
+      memory_count INTEGER DEFAULT 0,
+      summary TEXT,
+      summary_generated_at TIMESTAMP,
+      key_topics JSON,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 创建索引
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);
+    CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance);
+    CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
+    CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
+    CREATE INDEX IF NOT EXISTS idx_entities_parent ON entities(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_memory_entities_entity ON memory_entities(entity_id);
+    CREATE INDEX IF NOT EXISTS idx_entity_relations_source ON entity_relations(source_id);
+    CREATE INDEX IF NOT EXISTS idx_entity_relations_target ON entity_relations(target_id);
+  `);
+}
+
+let dbInstance: Database.Database | null = null;
+
+export function getDatabase(dbPath: string = './memories/memory.db'): Database.Database {
+  if (!dbInstance) {
+    dbInstance = new Database(dbPath);
+    initializeDatabase(dbInstance);
+  }
+  return dbInstance;
+}
