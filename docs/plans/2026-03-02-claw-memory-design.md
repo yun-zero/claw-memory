@@ -377,20 +377,48 @@ await mcp.call_tool("search_memory", {
 
 ## 9. 技术栈
 
-- **语言**: Python 3.10+
-- **数据库**: SQLite3
-- **MCP 框架**: mcp Python SDK
-- **定时任务**: APScheduler
-- **CLI**: Click / Typer
-- **可选嵌入**: OpenAI text-embedding-3-small
+- **语言**: TypeScript (Node.js 18+)
+- **数据库**: better-sqlite3 (SQLite Node.js 绑定)
+- **MCP 框架**: @modelcontextprotocol/sdk
+- **CLI**: Commander.js
+- **类型**: TypeScript 5.x with strict mode
+- **测试**: Vitest (TDD)
+- **可选嵌入**: OpenAI text-embedding-3-small (Phase 4)
 
 ---
 
-## 10. 实现路线图
+## 10. 项目结构 (TypeScript)
 
-### Phase 1: MVP
-- [ ] SQLite 数据模型
-- [ ] MCP 服务基础框架
+```
+claw-memory/
+├── src/
+│   ├── index.ts           # CLI 入口
+│   ├── db/
+│   │   ├── schema.ts      # SQLite 表结构 + 初始化
+│   │   └── repository.ts  # 数据访问层 (Repository)
+│   ├── services/
+│   │   ├── memory.ts      # 记忆服务
+│   │   └── retrieval.ts   # 检索服务 (权重计算)
+│   ├── mcp/
+│   │   └── tools.ts       # MCP 工具定义
+│   └── types.ts           # 类型定义
+├── tests/
+│   ├── db/
+│   ├── services/
+│   └── mcp/
+├── package.json
+├── tsconfig.json
+└── README.md
+```
+
+---
+
+## 11. 实现路线图
+
+### Phase 1: MVP (当前阶段)
+- [ ] 项目初始化 (package.json, tsconfig)
+- [ ] SQLite 数据模型 (schema.ts, repository.ts)
+- [ ] MCP 服务基础框架 (tools.ts, index.ts)
 - [ ] 记忆存储/检索核心功能
 
 ### Phase 2: 增强
