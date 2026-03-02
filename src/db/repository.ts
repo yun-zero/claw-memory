@@ -74,7 +74,7 @@ export class MemoryRepository {
       id: row.id,
       contentPath: row.content_path,
       summary: row.summary,
-      integratedSummary: row.integrated_summary ? JSON.parse(row.integrated_summary) : null,
+      integratedSummary: row.integrated_summary ? this.safeParseJSON(row.integrated_summary) : null,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
       tokenCount: row.token_count,
@@ -85,5 +85,13 @@ export class MemoryRepository {
       isDuplicate: Boolean(row.is_duplicate),
       duplicateOf: row.duplicate_of
     };
+  }
+
+  private safeParseJSON(json: string): IntegratedSummary | null {
+    try {
+      return JSON.parse(json);
+    } catch {
+      return null;
+    }
   }
 }
