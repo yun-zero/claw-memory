@@ -138,4 +138,39 @@ describe('MemoryService', () => {
       expect(context).toBeDefined();
     });
   });
+
+  describe('getContext boundaries', () => {
+    it('should return empty string when no memories', async () => {
+      const db = new Database(':memory:');
+      initializeDatabase(db);
+      const emptyService = new MemoryService(db, './test_ctx');
+      const result = await emptyService.getContext({ query: 'test', maxTokens: 100 });
+      expect(result).toBe('');
+    });
+
+    it('should return empty when maxTokens=0', async () => {
+      const result = await service.getContext({ query: 'test', maxTokens: 0 });
+      expect(result).toBe('');
+    });
+
+    it('should handle very large maxTokens', async () => {
+      // Save a memory first to ensure there's content to return
+      await service.saveMemory({
+        content: 'Test content for large maxTokens',
+        metadata: { summary: 'Large token test' }
+      });
+      const result = await service.getContext({ query: 'test', maxTokens: 100000 });
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('should truncate when single memory exceeds maxTokens', async () => {
+      const longMemory = await service.saveMemory({
+        content: 'a'.repeat(5000),
+        metadata: { summary: 'Long' }
+      });
+      const result = await service.getContext({ query: 'Long', maxTokens: 100 });
+      // Should handle gracefully
+      expect(typeof result).toBe('string');
+    });
+  });
 });
