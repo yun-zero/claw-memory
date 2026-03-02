@@ -9,7 +9,7 @@ import { calculateWeight, DEFAULT_TIME_DECAY, type SearchOptions } from './retri
 import { SummarizerService } from './summarizer.js';
 import { generateSummaryWithLLM } from '../config/llm.js';
 import { MetadataExtractor } from './metadataExtractor.js';
-import type { Memory, SaveMemoryInput, GetContextInput, TimeBucket, WeeklyReport } from '../types.js';
+import type { Memory, SaveMemoryInput, GetContextInput, TimeBucket, WeeklyReport, IntegratedSummary } from '../types.js';
 
 export class MemoryService {
   private db: Database.Database;
@@ -28,6 +28,12 @@ export class MemoryService {
     this.dataDir = dataDir;
   }
 
+  async getLatestIntegratedSummary(): Promise<IntegratedSummary | null> {
+    const memories = this.memoryRepo.findAll(1);
+    if (memories.length === 0) return null;
+    return memories[0].integratedSummary;
+  }
+
   async saveMemory(input: SaveMemoryInput): Promise<Memory> {
     const { content, metadata } = input;
 
@@ -40,8 +46,13 @@ export class MemoryService {
     // 保存内容到文件
     await this.saveContentToFile(contentPath, content);
 
-    // 调用 LLM 提取元数据（仅当有内容时）
-    const extracted = content.trim() ? await this.extractor.extract(content) : { tags: [], keywords: [], subjects: [], importance: 0.5, summary: '' };
+    // 获取已有的整体摘要
+    const existingSummary = await this.getLatestIntegratedSummary();
+
+    // 调用 LLM 提取元数据（传入已有摘要）
+    const extracted = content.trim()
+      ? await this.extractor.extract(content, existingSummary || undefined)
+      : { tags: [], keywords: [], subjects: [], importance: 0.5, summary: '', integratedSummary: existingSummary || { active_areas: [], key_topics: [], recent_summary: '' } };
 
     // 合并：LLM 提取的覆盖用户传入的
     const mergedMetadata = {
@@ -58,6 +69,7 @@ export class MemoryService {
     const memoryInput: CreateMemoryInput = {
       contentPath,
       summary: mergedMetadata.summary || undefined,
+      integratedSummary: extracted.integratedSummary,
       importance: clampedImportance ?? 0.5,
       tokenCount: this.estimateTokens(content)
     };
