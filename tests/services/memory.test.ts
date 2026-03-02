@@ -173,4 +173,35 @@ describe('MemoryService', () => {
       expect(typeof result).toBe('string');
     });
   });
+
+  describe('getSummary', () => {
+    it('should return TimeBucket without LLM key configured', async () => {
+      // Save some test memories
+      await service.saveMemory({
+        content: 'Test content about React',
+        metadata: { summary: 'React notes', importance: 0.8, tags: ['技术/前端'] }
+      });
+
+      const result = await service.getSummary('week', '2026-02-24');
+
+      expect(result).toBeDefined();
+      expect(result.memoryCount).toBeGreaterThanOrEqual(0); // May or may not include test memory depending on date
+      expect(result.summary).toBeDefined();
+      expect(result.keyTopics).toBeDefined();
+    });
+
+    it('should calculate correct date ranges for different periods', async () => {
+      // Day period - should return the same date
+      const dayResult = await service.getSummary('day', '2026-02-24');
+      expect(dayResult.date).toBe('2026-02-24'); // day returns same date
+
+      // Week period - should return 7 days before
+      const weekResult = await service.getSummary('week', '2026-02-24');
+      expect(weekResult.date).toBe('2026-02-17');
+
+      // Month period - should go back 1 month
+      const monthResult = await service.getSummary('month', '2026-02-24');
+      expect(monthResult.date).toBe('2026-01-24');
+    });
+  });
 });

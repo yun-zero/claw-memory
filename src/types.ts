@@ -85,3 +85,48 @@ export interface GetSummaryInput {
   period: 'day' | 'week' | 'month';
   date?: string;
 }
+
+export interface WeeklyReport {
+  // 1. 基础统计
+  period: { start: string; end: string };
+  basic: {
+    totalMemories: number;
+    totalTokens: number;
+    avgImportance: number;
+  };
+
+  // 2. 标签分布维度
+  tags: {
+    topTags: { name: string; count: number }[];
+    tagDistribution: Record<string, number>;
+  };
+
+  // 3. 主题/关键词维度
+  topics: {
+    keywords: { word: string; count: number }[];
+    keyTopics: string[];
+  };
+
+  // 4. 重要性维度
+  importance: {
+    highPriority: Pick<Memory, 'id' | 'summary' | 'importance'>[];
+    mediumPriority: Pick<Memory, 'id' | 'summary' | 'importance'>[];
+    lowPriority: Pick<Memory, 'id' | 'summary' | 'importance'>[];
+  };
+
+  // 5. 访问模式维度
+  access: {
+    mostAccessed: Pick<Memory, 'id' | 'summary' | 'accessCount'>[];
+    recentlyCreated: Pick<Memory, 'id' | 'summary' | 'createdAt'>[];
+    recentlyAccessed: Pick<Memory, 'id' | 'summary' | 'lastAccessedAt'>[];
+  };
+
+  // 6. 实体关系维度
+  entities: {
+    relatedGroups: { entity: string; related: string[] }[];
+    coOccurringTags: [string, string][];
+  };
+
+  // 7. LLM 智能总结
+  summary: string;
+}

@@ -6,18 +6,22 @@ import { dirname, join } from 'path';
 import { MemoryRepository, CreateMemoryInput } from '../db/repository.js';
 import { EntityRepository } from '../db/entityRepository.js';
 import { calculateWeight, DEFAULT_TIME_DECAY, type SearchOptions } from './retrieval.js';
-import type { Memory, SaveMemoryInput, GetContextInput, TimeBucket } from '../types.js';
+import { SummarizerService } from './summarizer.js';
+import { generateSummaryWithLLM } from '../config/llm.js';
+import type { Memory, SaveMemoryInput, GetContextInput, TimeBucket, WeeklyReport } from '../types.js';
 
 export class MemoryService {
   private db: Database.Database;
   private memoryRepo: MemoryRepository;
   private entityRepo: EntityRepository;
+  private summarizer: SummarizerService;
   private dataDir: string;
 
   constructor(db: Database.Database, dataDir: string = './memories') {
     this.db = db;
     this.memoryRepo = new MemoryRepository(db);
     this.entityRepo = new EntityRepository(db);
+    this.summarizer = new SummarizerService(db);
     this.dataDir = dataDir;
   }
 
@@ -134,17 +138,71 @@ export class MemoryService {
     return contextParts.join('\n\n---\n\n');
   }
 
-  async getSummary(period: 'day' | 'week' | 'month', date?: string): Promise<TimeBucket | null> {
-    const targetDate = date || new Date().toISOString().split('T')[0];
+  async getSummary(period: 'day' | 'week' | 'month', date?: string): Promise<TimeBucket> {
+    const targetDate = date ? new Date(date) : new Date();
+    const { startDate, endDate } = this.calculatePeriodRange(period, targetDate);
+
+    // 聚合数据
+    const report: WeeklyReport = await this.summarizer.aggregateMemories(startDate, endDate);
+
+    // 生成 LLM 总结
+    try {
+      const reportString = this.summarizer.reportToString(report);
+      report.summary = await generateSummaryWithLLM(reportString);
+    } catch (error) {
+      console.warn('Failed to generate LLM summary:', error);
+      report.summary = '总结生成失败，请配置有效的 LLM API Key。';
+    }
+
+    // 保存到 time_buckets 表
+    this.saveTimeBucket(startDate, report);
 
     return {
-      date: targetDate,
-      memoryCount: 0,
-      summary: null,
-      summaryGeneratedAt: null,
-      keyTopics: null,
+      date: startDate,
+      memoryCount: report.basic.totalMemories,
+      summary: report.summary,
+      summaryGeneratedAt: new Date(),
+      keyTopics: report.topics.keyTopics,
       createdAt: new Date()
     };
+  }
+
+  private calculatePeriodRange(period: 'day' | 'week' | 'month', date: Date): { startDate: string; endDate: string } {
+    const endDate = date.toISOString().split('T')[0];
+    const startDate = new Date(date);
+
+    switch (period) {
+      case 'day':
+        // 返回当天
+        break;
+      case 'week':
+        startDate.setDate(startDate.getDate() - 7);
+        break;
+      case 'month':
+        startDate.setMonth(startDate.getMonth() - 1);
+        break;
+    }
+
+    return {
+      startDate: startDate.toISOString().split('T')[0],
+      endDate
+    };
+  }
+
+  private saveTimeBucket(date: string, report: WeeklyReport): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO time_buckets (date, memory_count, summary, summary_generated_at, key_topics, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      date,
+      report.basic.totalMemories,
+      report.summary,
+      new Date().toISOString(),
+      JSON.stringify(report.topics.keyTopics),
+      new Date().toISOString()
+    );
   }
 
   private async saveContentToFile(path: string, content: string): Promise<void> {
