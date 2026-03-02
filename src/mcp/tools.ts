@@ -186,8 +186,21 @@ export function createListMemoriesTool(memoryService: MemoryService): MCPTool {
         }
       }
     },
-    handler: async (_params: any) => {
-      return { memories: [] };
+    handler: async (params: any) => {
+      const memories = await memoryService.searchMemory({
+        query: '',
+        limit: params.limit || 20,
+        timeRange: 'all'
+      });
+      return {
+        memories: memories.map(m => ({
+          id: m.id,
+          summary: m.summary,
+          importance: m.importance,
+          created_at: m.createdAt.toISOString(),
+          token_count: m.tokenCount
+        }))
+      };
     }
   };
 }
