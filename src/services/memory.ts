@@ -40,8 +40,8 @@ export class MemoryService {
     // 保存内容到文件
     await this.saveContentToFile(contentPath, content);
 
-    // 调用 LLM 提取元数据
-    const extracted = await this.extractor.extract(content);
+    // 调用 LLM 提取元数据（仅当有内容时）
+    const extracted = content.trim() ? await this.extractor.extract(content) : { tags: [], keywords: [], subjects: [], importance: 0.5, summary: '' };
 
     // 合并：LLM 提取的覆盖用户传入的
     const mergedMetadata = {

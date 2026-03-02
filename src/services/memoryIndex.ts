@@ -24,30 +24,21 @@ export interface MemoryIndex {
 export async function getMemoryIndex(db: Database.Database, options: MemoryIndexOptions): Promise<MemoryIndex> {
   const { startDate, endDate } = calculatePeriodRange(options.period, options.date);
 
-  // 获取活跃领域
-  const tags = getTopTags(db, startDate, endDate, 10);
-  const keywords = getTopKeywords(db, startDate, endDate, 10);
+  // 并行获取活跃领域
+  const [tags, keywords] = await Promise.all([
+    Promise.resolve(getTopTags(db, startDate, endDate, 10)),
+    Promise.resolve(getTopKeywords(db, startDate, endDate, 10))
+  ]);
 
-  // 获取待办
-  let todos: { id: string; content: string; period: string }[] = [];
-  if (options.includeTodos) {
-    const todoRepo = new TodoRepository(db);
-    const allTodos = todoRepo.findByPeriod(options.period, endDate);
-    todos = allTodos
-      .filter(t => !t.completedAt)
-      .map(t => ({ id: t.id, content: t.content, period: t.period }));
-  }
-
-  // 获取最近动态
-  let recentActivity: { date: string; summary: string }[] = [];
-  if (options.includeRecent) {
-    const memoryRepo = new MemoryRepository(db);
-    const recentMemories = findMemoriesByDateRange(db, startDate, endDate, options.recentLimit || 5);
-    recentActivity = recentMemories.map(m => ({
-      date: m.createdAt.toISOString().split('T')[0],
-      summary: m.summary || ''
-    }));
-  }
+  // 并行获取待办和最近动态
+  const [todos, recentActivity] = await Promise.all([
+    options.includeTodos
+      ? getTodos(db, options.period, endDate)
+      : Promise.resolve([]),
+    options.includeRecent
+      ? getRecentActivity(db, startDate, endDate, options.recentLimit || 5)
+      : Promise.resolve([])
+  ]);
 
   return {
     period: { start: startDate, end: endDate },
@@ -55,6 +46,22 @@ export async function getMemoryIndex(db: Database.Database, options: MemoryIndex
     todos,
     recentActivity
   };
+}
+
+async function getTodos(db: Database.Database, period: string, endDate: string) {
+  const todoRepo = new TodoRepository(db);
+  const allTodos = todoRepo.findByPeriod(period, endDate);
+  return allTodos
+    .filter(t => !t.completedAt)
+    .map(t => ({ id: t.id, content: t.content, period: t.period }));
+}
+
+async function getRecentActivity(db: Database.Database, startDate: string, endDate: string, limit: number) {
+  const recentMemories = findMemoriesByDateRange(db, startDate, endDate, limit);
+  return recentMemories.map(m => ({
+    date: m.createdAt.toISOString().split('T')[0],
+    summary: m.summary || ''
+  }));
 }
 
 function calculatePeriodRange(period: string, date?: string) {

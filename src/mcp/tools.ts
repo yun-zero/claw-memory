@@ -289,10 +289,7 @@ export function createListTodosTool(db: Database.Database): MCPTool {
     },
     handler: async (params) => {
       const repo = new TodoRepository(db);
-      let todos = repo.findByPeriod(params.period, params.periodDate);
-      if (!params.includeCompleted) {
-        todos = todos.filter(t => !t.completedAt);
-      }
+      const todos = repo.findByPeriod(params.period, params.periodDate, params.includeCompleted);
       return { todos };
     }
   };
