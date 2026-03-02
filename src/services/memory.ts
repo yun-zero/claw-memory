@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { readFile, writeFile, mkdir } from 'fs/promises';
+import { readFileSync } from 'fs';
+import { writeFile, mkdir } from 'fs/promises';
 import { dirname, join } from 'path';
 import { MemoryRepository, CreateMemoryInput } from '../db/repository.js';
 import { EntityRepository } from '../db/entityRepository.js';
@@ -33,10 +34,11 @@ export class MemoryService {
     await this.saveContentToFile(contentPath, content);
 
     // 创建记忆记录
+    const clampedImportance = this.clampImportance(metadata?.importance);
     const memoryInput: CreateMemoryInput = {
       contentPath,
       summary: metadata?.summary || undefined,
-      importance: metadata?.importance ?? 0.5,
+      importance: clampedImportance ?? 0.5,
       tokenCount: this.estimateTokens(content)
     };
 
@@ -115,7 +117,7 @@ export class MemoryService {
     const contextParts: string[] = [];
 
     for (const memory of memories) {
-      const content = await this.readContentFromFile(memory.contentPath);
+      const content = this.readContentFromFile(memory.contentPath);
       const tokens = this.estimateTokens(content);
 
       if (totalTokens + tokens > maxTokens) {
@@ -151,9 +153,9 @@ export class MemoryService {
     await writeFile(path, content, 'utf-8');
   }
 
-  private async readContentFromFile(path: string): Promise<string> {
+  private readContentFromFile(path: string): string {
     try {
-      return await readFile(path, 'utf-8');
+      return readFileSync(path, 'utf-8');
     } catch {
       return '';
     }
@@ -235,6 +237,13 @@ export class MemoryService {
     }
 
     return { start, end };
+  }
+
+  private clampImportance(value: number | undefined): number | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    return Math.max(0, Math.min(1, value));
   }
 
   private estimateTokens(text: string): number {
