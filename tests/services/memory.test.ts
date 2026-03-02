@@ -30,6 +30,48 @@ describe('MemoryService', () => {
       expect(result.id).toBeDefined();
       expect(result.summary).toBe('讨论 React Hooks');
     });
+
+    it('should save memory with empty content', async () => {
+      const result = await service.saveMemory({
+        content: '',
+        metadata: { summary: 'Empty content test' }
+      });
+      expect(result.id).toBeDefined();
+    });
+
+    it('should save memory without metadata', async () => {
+      const result = await service.saveMemory({
+        content: 'Test content only'
+      });
+      expect(result.id).toBeDefined();
+      expect(result.importance).toBe(0.5); // default
+    });
+
+    it('should save memory with custom importance=1.0', async () => {
+      const result = await service.saveMemory({
+        content: 'High importance',
+        metadata: { importance: 1.0 }
+      });
+      expect(result.importance).toBe(1.0);
+    });
+
+    it('should save memory with custom importance=0', async () => {
+      const result = await service.saveMemory({
+        content: 'Zero importance',
+        metadata: { importance: 0 }
+      });
+      expect(result.importance).toBe(0);
+    });
+
+    it('should save memory with long content', async () => {
+      const longContent = 'a'.repeat(10000);
+      const result = await service.saveMemory({
+        content: longContent,
+        metadata: { summary: 'Long content' }
+      });
+      expect(result.id).toBeDefined();
+      expect(result.tokenCount).toBeGreaterThan(0);
+    });
   });
 
   describe('searchMemory', () => {

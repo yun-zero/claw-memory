@@ -35,15 +35,15 @@ export class MemoryService {
     // 创建记忆记录
     const memoryInput: CreateMemoryInput = {
       contentPath,
-      summary: metadata.summary || undefined,
-      importance: metadata.importance ?? 0.5,
+      summary: metadata?.summary || undefined,
+      importance: metadata?.importance ?? 0.5,
       tokenCount: this.estimateTokens(content)
     };
 
     const memory = this.memoryRepo.create(memoryInput);
 
     // 处理实体关联
-    await this.processEntities(memory.id, metadata);
+    await this.processEntities(memory.id, metadata || {});
 
     return memory;
   }
