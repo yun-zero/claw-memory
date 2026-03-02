@@ -3,10 +3,17 @@
  * Lightweight AI memory system for OpenClaw and Claude Code
  */
 
+export interface IntegratedSummary {
+  active_areas: string[];
+  key_topics: string[];
+  recent_summary: string;
+}
+
 export interface Memory {
   id: string;
   contentPath: string;
   summary: string | null;
+  integratedSummary: IntegratedSummary | null;
   createdAt: Date;
   updatedAt: Date;
   tokenCount: number;

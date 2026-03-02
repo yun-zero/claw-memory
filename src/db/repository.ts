@@ -72,6 +72,7 @@ export class MemoryRepository {
       id: row.id,
       contentPath: row.content_path,
       summary: row.summary,
+      integratedSummary: row.integrated_summary ? JSON.parse(row.integrated_summary) : null,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
       tokenCount: row.token_count,
