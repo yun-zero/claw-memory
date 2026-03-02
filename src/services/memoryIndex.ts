@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { TodoRepository } from '../db/todoRepository.js';
 import { MemoryRepository } from '../db/repository.js';
 import { EntityRepository } from '../db/entityRepository.js';
+import type { IntegratedSummary } from '../types.js';
 
 export interface MemoryIndexOptions {
   period: 'day' | 'week' | 'month';
@@ -19,6 +20,11 @@ export interface MemoryIndex {
   };
   todos: { id: string; content: string; period: string }[];
   recentActivity: { date: string; summary: string }[];
+  integratedSummary?: {
+    active_areas: string[];
+    key_topics: string[];
+    recent_summary: string;
+  };
 }
 
 export async function getMemoryIndex(db: Database.Database, options: MemoryIndexOptions): Promise<MemoryIndex> {
@@ -40,11 +46,17 @@ export async function getMemoryIndex(db: Database.Database, options: MemoryIndex
       : Promise.resolve([])
   ]);
 
+  // 获取缓存的整体摘要（从最新的 memory）
+  const memoryRepo = new MemoryRepository(db);
+  const memories = memoryRepo.findAll(1);
+  const integratedSummary = memories.length > 0 ? memories[0].integratedSummary : null;
+
   return {
     period: { start: startDate, end: endDate },
     activeAreas: { tags, keywords },
     todos,
-    recentActivity
+    recentActivity,
+    integratedSummary
   };
 }
 

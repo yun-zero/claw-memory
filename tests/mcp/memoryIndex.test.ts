@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { initializeDatabase } from '../../src/db/schema.js';
 import { getMemoryIndex } from '../../src/services/memoryIndex.js';
+import { MemoryService } from '../../src/services/memory.js';
 
 describe('getMemoryIndex', () => {
   let db: Database.Database;
@@ -42,5 +43,17 @@ describe('getMemoryIndex', () => {
 
     expect(result.period.end).toBe('2026-03-02');
     expect(result.period.start).toBe('2026-02-02'); // 1 month before
+  });
+
+  it('should return integrated summary from latest memory', async () => {
+    // 先保存一个带 integrated_summary 的 memory
+    const memoryService = new MemoryService(db, './test_memories');
+    await memoryService.saveMemory({
+      content: 'Test content about React hooks',
+      metadata: { summary: 'Test summary' }
+    });
+
+    const result = await getMemoryIndex(db, { period: 'week' });
+    expect(result.integratedSummary).toBeDefined();
   });
 });
