@@ -14,7 +14,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python">
+  <img src="https://img.shields.io/badge/typescript-5.0+-blue.svg" alt="TypeScript">
+  <img src="https://img.shields.io/badge/node-18+-green.svg" alt="Node.js">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License">
   <img src="https://img.shields.io/badge/status-alpha-orange.svg" alt="Status">
 </p>
@@ -31,6 +32,8 @@
 - 🔌 **MCP 协议支持** - 原生支持 Claude Code 和 OpenClaw 调用
 - 💾 **轻量级部署** - SQLite + 本地文件，无需额外数据库服务
 - 🎯 **智能检索** - 多维度权重计算，限制条数和 Token 大小
+- 🤖 **LLM 元数据提取** - 自动提取标签、关键词、主题和重要性评分
+- 📝 **增量摘要更新** - LLM 单次调用同时更新会话摘要和整体摘要
 
 ## 架构
 
@@ -44,17 +47,21 @@
 │                      Claw-Memory MCP Server                      │
 ├─────────────────────────────────────────────────────────────────┤
 │  Tools:                                                         │
-│  ├── save_memory      保存会话记忆                              │
-│  ├── search_memory    检索相关记忆                              │
-│  ├── get_context      获取上下文（按权重加载）                   │
-│  ├── get_summary      获取时间周期总结                          │
-│  └── manage_entities  管理实体/标签                             │
+│  ├── save_memory        保存会话记忆（含 LLM 元数据提取）         │
+│  ├── search_memory      检索相关记忆                              │
+│  ├── get_context        获取上下文（按权重加载）                  │
+│  ├── get_summary        获取时间周期总结                          │
+│  ├── get_memory_index  获取记忆索引（活跃领域、待办、最近动态）    │
+│  ├── add_todo           添加待办事项                              │
+│  ├── list_todos         列出待办事项                              │
+│  ├── complete_todo      完成待办事项                              │
+│  └── manage_entities    管理实体/标签                             │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │
         ┌───────────────────────┼───────────────────────┐
         ▼                       ▼                       ▼
 ┌───────────────┐       ┌───────────────┐       ┌───────────────┐
-│    SQLite     │       │  本地文件      │       │  定时任务      │
+│    SQLite     │       │  本地文件      │       │  定时任务     │
 │   (元数据)    │       │  (对话内容)    │       │  (总结/去重)   │
 └───────────────┘       └───────────────┘       └───────────────┘
 ```
@@ -65,7 +72,8 @@
 memories (记忆表)
 ├── id, content_path, created_at
 ├── importance, access_count
-└── token_count
+├── token_count
+└── summary, integrated_summary (JSON)
 
 entities (实体表 - 含层级)
 ├── id, name, type, parent_id
@@ -84,6 +92,11 @@ entity_relations (实体关系图)
 time_buckets (时间桶)
 ├── date, memory_count
 └── summary, summary_generated_at
+
+todos (待办事项)
+├── id, content, period
+├── completed_at, created_at
+└── type: day | week | month
 ```
 
 ## 快速开始
@@ -96,20 +109,23 @@ git clone https://github.com/openclaw/claw-memory.git
 cd claw-memory
 
 # 安装依赖
-pip install -e .
+npm install
 
-# 或使用 uv
-uv pip install -e .
+# 构建项目
+npm run build
 ```
 
 ### 启动 MCP 服务
 
 ```bash
-# 启动服务
-claw-memory serve
+# 启动服务（默认端口 18790）
+npm run start
+
+# 开发模式（热重载）
+npm run dev
 
 # 指定端口和数据目录
-claw-memory serve --port 18790 --data-dir ./memories
+CLAW_MEMORY_PORT=18790 CLAW_MEMORY_DATA_DIR=./memories npm run start
 ```
 
 ### 配置 Claude Code
@@ -120,8 +136,8 @@ claw-memory serve --port 18790 --data-dir ./memories
 {
   "mcpServers": {
     "claw-memory": {
-      "command": "uvx",
-      "args": ["claw-memory", "serve"],
+      "command": "node",
+      "args": ["/path/to/claw-memory/dist/index.js"],
       "env": {
         "CLAW_MEMORY_DATA_DIR": "/path/to/memories"
       }
@@ -136,12 +152,12 @@ claw-memory serve --port 18790 --data-dir ./memories
 
 ```yaml
 hooks:
-  session_end:
-    - name: "save_to_memory"
-      module: "claw_memory.hooks"
+  session_start:
+    - name: "memory_index"
+      module: "claw-memory"
       config:
         mcp_endpoint: "http://localhost:18790"
-        min_messages: 3
+        period: "week"
 ```
 
 ## 使用方法
@@ -150,38 +166,38 @@ hooks:
 
 OpenClaw 会话结束时自动触发，或手动调用：
 
-```python
-# 通过 MCP 工具调用
-result = await mcp.call_tool("save_memory", {
-    "content": "用户讨论了 React Hooks 的使用...",
-    "metadata": {
-        "tags": ["技术/前端/React"],
-        "subjects": ["React Hooks", "状态管理"],
-        "keywords": ["useState", "useEffect", "useCallback"],
-        "importance": 0.8,
-        "summary": "讨论了 React Hooks 的最佳实践"
-    },
-    "user_id": "default"
-})
+```typescript
+// 通过 MCP 工具调用
+const result = await mcp.callTool("save_memory", {
+  content: "用户讨论了 React Hooks 的使用...",
+  metadata: {
+    tags: ["技术/前端/React"],
+    subjects: ["React Hooks", "状态管理"],
+    keywords: ["useState", "useEffect", "useCallback"],
+    importance: 0.8,
+    summary: "讨论了 React Hooks 的最佳实践"
+  },
+  userId: "default"
+});
 ```
 
 ### 检索记忆
 
-```python
-# 搜索相关记忆
-memories = await mcp.call_tool("search_memory", {
-    "query": "React Hooks 怎么用",
-    "time_range": "month",  # today/week/month/year/all
-    "tags": ["技术/前端"],
-    "limit": 10,
-    "max_tokens": 4000
-})
+```typescript
+// 搜索相关记忆
+const memories = await mcp.callTool("search_memory", {
+  query: "React Hooks 怎么用",
+  timeRange: "month",  // today/week/month/year/all
+  tags: ["技术/前端"],
+  limit: 10,
+  maxTokens: 4000
+});
 
-# 获取上下文（自动按权重加载）
-context = await mcp.call_tool("get_context", {
-    "query": "上次讨论的 React 项目",
-    "max_tokens": 8000
-})
+// 获取上下文（自动按权重加载）
+const context = await mcp.callTool("get_context", {
+  query: "上次讨论的 React 项目",
+  maxTokens: 8000
+});
 ```
 
 ### 检索权重计算
@@ -197,12 +213,58 @@ context = await mcp.call_tool("get_context", {
 
 ### 获取周期总结
 
-```python
-# 获取今日总结
-summary = await mcp.call_tool("get_summary", {
-    "period": "day",  # day/week/month
-    "date": "2026-03-02"
-})
+```typescript
+// 获取今日总结
+const summary = await mcp.callTool("get_summary", {
+  period: "day",  // day/week/month
+  date: "2026-03-02"
+});
+```
+
+### 获取记忆索引
+
+```typescript
+// 获取本周记忆索引
+const index = await mcp.callTool("get_memory_index", {
+  period: "week",  // day/week/month
+  date: "2026-03-03",
+  includeTodos: true,
+  includeRecent: true,
+  recentLimit: 5
+});
+
+// 返回结构
+// {
+//   period: { start: "2026-02-24", end: "2026-03-03" },
+//   activeAreas: {
+//     tags: [{ name: "技术/前端/React", count: 5 }],
+//     keywords: ["React", "TypeScript"]
+//   },
+//   todos: [{ id: "xxx", content: "学习 React", period: "week" }],
+//   recentActivity: [{ date: "2026-03-02", summary: "..." }],
+//   integratedSummary: { active_areas: [...], key_topics: [...], recent_summary: "..." }
+// }
+```
+
+### 管理待办事项
+
+```typescript
+// 添加待办
+await mcp.callTool("add_todo", {
+  content: "完成项目文档",
+  period: "week"  // day/week/month
+});
+
+// 列出待办
+const todos = await mcp.callTool("list_todos", {
+  period: "week",
+  includeCompleted: false
+});
+
+// 完成待办
+await mcp.callTool("complete_todo", {
+  id: "todo-id"
+});
 ```
 
 ## API 参考
@@ -211,24 +273,29 @@ summary = await mcp.call_tool("get_summary", {
 
 | 工具 | 描述 |
 |-----|------|
-| `save_memory` | 保存会话记忆，自动处理实体和关联 |
+| `save_memory` | 保存会话记忆，自动处理实体和关联，LLM 提取元数据 |
 | `search_memory` | 多维度检索记忆 |
 | `get_context` | 获取加权上下文，限制 Token 数 |
 | `get_summary` | 获取时间周期总结 |
+| `get_memory_index` | 获取记忆索引（活跃领域、待办、最近动态） |
 | `list_memories` | 列出指定条件的记忆 |
 | `delete_memory` | 删除指定记忆 |
+| `add_todo` | 添加待办事项 |
+| `list_todos` | 列出待办事项 |
+| `complete_todo` | 完成待办事项 |
 | `manage_entities` | 管理实体/标签的 CRUD |
 | `build_relations` | 手动触发实体关系构建 |
 
-### CLI 命令
+### NPM Scripts
 
 ```bash
-claw-memory serve          # 启动 MCP 服务
-claw-memory summary        # 手动触发每日总结
-claw-memory dedup          # 手动触发去重
-claw-memory export         # 导出记忆数据
-claw-memory import         # 导入记忆数据
-claw-memory stats          # 查看统计信息
+npm run build        # 编译 TypeScript
+npm run dev          # 开发模式（热重载）
+npm run start        # 启动 MCP 服务
+npm run test         # 运行测试
+npm run test:watch  # 测试监听模式
+npm run lint         # 代码检查
+npm run format       # 代码格式化
 ```
 
 ## 配置
@@ -239,8 +306,12 @@ claw-memory stats          # 查看统计信息
 |-----|-------|------|
 | `CLAW_MEMORY_DATA_DIR` | `./memories` | 数据存储目录 |
 | `CLAW_MEMORY_DB_PATH` | `{DATA_DIR}/memory.db` | SQLite 数据库路径 |
+| `CLAW_MEMORY_PORT` | `18790` | MCP 服务端口 |
 | `CLAW_MEMORY_MAX_TOKENS` | `8000` | 默认最大 Token 数 |
-| `CLAW_MEMORY_EMBEDDING_MODEL` | `text-embedding-3-small` | 嵌入模型（可选） |
+| `OPENAI_API_KEY` | - | OpenAI API Key（用于 LLM 提取） |
+| `ANTHROPIC_API_KEY` | - | Anthropic API Key（用于 LLM 提取） |
+| `LLM_PROVIDER` | `openai` | LLM 提供商：`openai` 或 `anthropic` |
+| `LLM_MODEL` | `gpt-4o-mini` | LLM 模型名称 |
 
 ### 配置文件
 
@@ -251,6 +322,12 @@ claw-memory stats          # 查看统计信息
 storage:
   data_dir: ./memories
   content_format: markdown  # markdown | json
+
+# LLM 配置
+llm:
+  provider: openai  # openai | anthropic
+  model: gpt-4o-mini
+  # API Key 通过环境变量设置
 
 # 检索配置
 retrieval:
@@ -267,8 +344,8 @@ tags:
   predefined:
     - 技术/前端/React
     - 技术/前端/Vue
+    - 技术/后端/Node.js
     - 技术/后端/Python
-    - 技术/后端/Go
     - 项目/Claw
     - 任务/开发
     - 任务/调试
@@ -282,39 +359,43 @@ scheduler:
     relation_update: {hour: 4, minute: 0}     # 睡眠第三阶段：建立关联
     weekly_summary: {day_of_week: "mon", hour: 3, minute: 30}   # 周一凌晨
     monthly_summary: {day: 1, hour: 4, minute: 30}              # 每月1日凌晨
-
-# 嵌入配置（可选，用于语义搜索）
-embedding:
-  enabled: false
-  provider: openai  # openai | local
-  model: text-embedding-3-small
 ```
 
 ## 项目结构
 
 ```
 claw-memory/
-├── claw_memory/
-│   ├── __init__.py
-│   ├── server.py           # MCP 服务入口
-│   ├── database.py         # SQLite 操作
-│   ├── storage.py          # 文件存储
-│   ├── entities.py         # 实体管理
-│   ├── retrieval.py        # 检索逻辑
-│   ├── scheduler.py        # 定时任务
-│   ├── hooks.py            # OpenClaw hooks
-│   └── cli.py              # CLI 命令
-├── memories/               # 记忆存储目录
+├── src/
+│   ├── index.ts              # MCP 服务入口
+│   ├── config/
+│   │   ├── llm.ts           # LLM 配置
+│   │   └── index.ts         # 其他配置
+│   ├── db/
+│   │   ├── schema.ts        # 数据库 Schema
+│   │   ├── repository.ts    # 记忆仓库
+│   │   ├── entityRepository.ts  # 实体仓库
+│   │   └── todoRepository.ts   # 待办仓库
+│   ├── services/
+│   │   ├── memory.ts        # 记忆服务
+│   │   ├── memoryIndex.ts   # 记忆索引服务
+│   │   ├── retrieval.ts     # 检索逻辑
+│   │   ├── summarizer.ts   # 总结服务
+│   │   └── metadataExtractor.ts  # LLM 元数据提取
+│   ├── mcp/
+│   │   ├── server.ts        # MCP 服务端
+│   │   └── tools.ts         # MCP 工具定义
+│   └── types.ts             # TypeScript 类型定义
+├── memories/                 # 记忆存储目录
 │   ├── 2026/
 │   │   └── 03/
 │   │       └── 02/
 │   │           └── {uuid}.md
-│   └── memory.db           # SQLite 数据库
+│   └── memory.db            # SQLite 数据库
+├── tests/                   # 测试文件
 ├── docs/
-│   └── plans/              # 设计文档
-├── tests/
-├── config.yaml
-├── pyproject.toml
+│   └── plans/               # 设计文档
+├── package.json
+├── tsconfig.json
 └── README.md
 ```
 
@@ -322,25 +403,35 @@ claw-memory/
 
 ```bash
 # 安装开发依赖
-pip install -e ".[dev]"
+npm install
 
 # 运行测试
-pytest
+npm test
+
+# 测试监听模式
+npm run test:watch
 
 # 代码格式化
-ruff format .
+npm run format
 
 # 类型检查
-mypy claw_memory
+npm run lint
+
+# 构建
+npm run build
 ```
 
 ## 路线图
 
 - [x] 核心架构设计
-- [ ] MVP 实现
-  - [ ] SQLite 数据模型
-  - [ ] MCP 服务基础
-  - [ ] 记忆存储/检索
+- [x] MVP 实现
+  - [x] SQLite 数据模型
+  - [x] MCP 服务基础
+  - [x] 记忆存储/检索
+  - [x] LLM 元数据提取
+  - [x] 增量摘要更新
+  - [x] 记忆索引
+  - [x] 待办事项管理
 - [ ] 增强功能
   - [ ] 层级标签管理
   - [ ] 实体关系图
