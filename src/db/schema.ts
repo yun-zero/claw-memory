@@ -7,6 +7,7 @@ export function initializeDatabase(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       content_path TEXT NOT NULL,
       summary TEXT,
+      integrated_summary JSON,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       token_count INTEGER DEFAULT 0,
