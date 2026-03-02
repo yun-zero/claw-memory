@@ -1,4 +1,7 @@
 import type { MemoryService } from '../services/memory.js';
+import Database from 'better-sqlite3';
+import { getMemoryIndex } from '../services/memoryIndex.js';
+import { TodoRepository, CreateTodoInput } from '../db/todoRepository.js';
 
 export interface MCPTool {
   name: string;
@@ -220,6 +223,95 @@ export function createDeleteMemoryTool(memoryService: MemoryService): MCPTool {
       required: ['id']
     },
     handler: async (_params: any) => {
+      return { success: true };
+    }
+  };
+}
+
+export function createGetMemoryIndexTool(db: Database.Database): MCPTool {
+  return {
+    name: 'get_memory_index',
+    description: 'Get memory index summary for conversation context',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        period: {
+          type: 'string',
+          enum: ['day', 'week', 'month'],
+          default: 'week'
+        },
+        date: { type: 'string' },
+        includeTodos: { type: 'boolean', default: true },
+        includeRecent: { type: 'boolean', default: true },
+        recentLimit: { type: 'number', default: 5 }
+      }
+    },
+    handler: async (params) => {
+      return await getMemoryIndex(db, params);
+    }
+  };
+}
+
+export function createAddTodoTool(db: Database.Database): MCPTool {
+  return {
+    name: 'add_todo',
+    description: 'Add a todo item',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        content: { type: 'string' },
+        period: { type: 'string', enum: ['day', 'week', 'month'] },
+        periodDate: { type: 'string' },
+        memoryId: { type: 'string' }
+      },
+      required: ['content', 'period', 'periodDate']
+    },
+    handler: async (params) => {
+      const repo = new TodoRepository(db);
+      const todo = repo.create(params as CreateTodoInput);
+      return todo;
+    }
+  };
+}
+
+export function createListTodosTool(db: Database.Database): MCPTool {
+  return {
+    name: 'list_todos',
+    description: 'List todo items',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        period: { type: 'string', enum: ['day', 'week', 'month'] },
+        periodDate: { type: 'string' },
+        includeCompleted: { type: 'boolean', default: false }
+      },
+      required: ['period', 'periodDate']
+    },
+    handler: async (params) => {
+      const repo = new TodoRepository(db);
+      let todos = repo.findByPeriod(params.period, params.periodDate);
+      if (!params.includeCompleted) {
+        todos = todos.filter(t => !t.completedAt);
+      }
+      return { todos };
+    }
+  };
+}
+
+export function createCompleteTodoTool(db: Database.Database): MCPTool {
+  return {
+    name: 'complete_todo',
+    description: 'Mark a todo as completed',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string' }
+      },
+      required: ['id']
+    },
+    handler: async (params) => {
+      const repo = new TodoRepository(db);
+      repo.markCompleted(params.id);
       return { success: true };
     }
   };

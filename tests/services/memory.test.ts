@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { initializeDatabase } from '../../src/db/schema.js';
 import { MemoryService } from '../../src/services/memory.js';
+import * as metadataExtractorModule from '../../src/services/metadataExtractor.js';
 
 describe('MemoryService', () => {
   let db: Database.Database;
@@ -71,6 +72,23 @@ describe('MemoryService', () => {
       });
       expect(result.id).toBeDefined();
       expect(result.tokenCount).toBeGreaterThan(0);
+    });
+
+    it('should extract metadata with LLM when saving memory', async () => {
+      vi.spyOn(metadataExtractorModule.MetadataExtractor.prototype, 'extract').mockResolvedValue({
+        tags: ['技术/前端'],
+        keywords: ['React'],
+        subjects: ['React学习'],
+        importance: 0.8,
+        summary: '测试'
+      });
+
+      const result = await service.saveMemory({
+        content: '讨论 React Hooks',
+        metadata: {}
+      });
+
+      expect(result).toBeDefined();
     });
   });
 

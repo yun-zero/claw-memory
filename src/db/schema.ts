@@ -76,6 +76,19 @@ export function initializeDatabase(db: Database.Database): void {
     )
   `);
 
+  // 6. 待办事项
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS todos (
+      id TEXT PRIMARY KEY,
+      content TEXT NOT NULL,
+      period TEXT NOT NULL,
+      period_date TEXT,
+      created_at TEXT NOT NULL,
+      completed_at TEXT,
+      memory_id TEXT
+    )
+  `);
+
   // 创建索引
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);

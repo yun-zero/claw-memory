@@ -8,6 +8,7 @@ import { EntityRepository } from '../db/entityRepository.js';
 import { calculateWeight, DEFAULT_TIME_DECAY, type SearchOptions } from './retrieval.js';
 import { SummarizerService } from './summarizer.js';
 import { generateSummaryWithLLM } from '../config/llm.js';
+import { MetadataExtractor } from './metadataExtractor.js';
 import type { Memory, SaveMemoryInput, GetContextInput, TimeBucket, WeeklyReport } from '../types.js';
 
 export class MemoryService {
@@ -15,6 +16,7 @@ export class MemoryService {
   private memoryRepo: MemoryRepository;
   private entityRepo: EntityRepository;
   private summarizer: SummarizerService;
+  private extractor: MetadataExtractor;
   private dataDir: string;
 
   constructor(db: Database.Database, dataDir: string = './memories') {
@@ -22,6 +24,7 @@ export class MemoryService {
     this.memoryRepo = new MemoryRepository(db);
     this.entityRepo = new EntityRepository(db);
     this.summarizer = new SummarizerService(db);
+    this.extractor = new MetadataExtractor();
     this.dataDir = dataDir;
   }
 
@@ -37,11 +40,24 @@ export class MemoryService {
     // 保存内容到文件
     await this.saveContentToFile(contentPath, content);
 
+    // 调用 LLM 提取元数据
+    const extracted = await this.extractor.extract(content);
+
+    // 合并：LLM 提取的覆盖用户传入的
+    const mergedMetadata = {
+      tags: extracted.tags,
+      keywords: extracted.keywords,
+      subjects: extracted.subjects,
+      importance: extracted.importance,
+      summary: extracted.summary,
+      ...metadata
+    };
+
     // 创建记忆记录
-    const clampedImportance = this.clampImportance(metadata?.importance);
+    const clampedImportance = this.clampImportance(mergedMetadata.importance);
     const memoryInput: CreateMemoryInput = {
       contentPath,
-      summary: metadata?.summary || undefined,
+      summary: mergedMetadata.summary || undefined,
       importance: clampedImportance ?? 0.5,
       tokenCount: this.estimateTokens(content)
     };
@@ -49,7 +65,7 @@ export class MemoryService {
     const memory = this.memoryRepo.create(memoryInput);
 
     // 处理实体关联
-    await this.processEntities(memory.id, metadata || {});
+    await this.processEntities(memory.id, mergedMetadata);
 
     return memory;
   }

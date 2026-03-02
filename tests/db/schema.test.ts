@@ -45,6 +45,13 @@ describe('Database Schema', () => {
     expect(result).toBeDefined();
   });
 
+  it('should create todos table', () => {
+    const result = db.prepare(`
+      SELECT name FROM sqlite_master WHERE type='table' AND name='todos'
+    `).get();
+    expect(result).toBeDefined();
+  });
+
   it('should create required indexes', () => {
     const indexes = db.prepare(`
       SELECT name FROM sqlite_master WHERE type='index'
