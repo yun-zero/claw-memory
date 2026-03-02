@@ -20,11 +20,7 @@ export interface MemoryIndex {
   };
   todos: { id: string; content: string; period: string }[];
   recentActivity: { date: string; summary: string }[];
-  integratedSummary?: {
-    active_areas: string[];
-    key_topics: string[];
-    recent_summary: string;
-  };
+  integratedSummary?: IntegratedSummary;
 }
 
 export async function getMemoryIndex(db: Database.Database, options: MemoryIndexOptions): Promise<MemoryIndex> {
@@ -48,8 +44,7 @@ export async function getMemoryIndex(db: Database.Database, options: MemoryIndex
 
   // 获取缓存的整体摘要（从最新的 memory）
   const memoryRepo = new MemoryRepository(db);
-  const memories = memoryRepo.findAll(1);
-  const integratedSummary = memories.length > 0 ? memories[0].integratedSummary : null;
+  const integratedSummary = memoryRepo.getLatestIntegratedSummary();
 
   return {
     period: { start: startDate, end: endDate },

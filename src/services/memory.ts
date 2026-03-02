@@ -28,10 +28,8 @@ export class MemoryService {
     this.dataDir = dataDir;
   }
 
-  async getLatestIntegratedSummary(): Promise<IntegratedSummary | null> {
-    const memories = this.memoryRepo.findAll(1);
-    if (memories.length === 0) return null;
-    return memories[0].integratedSummary;
+  getLatestIntegratedSummary(): IntegratedSummary | null {
+    return this.memoryRepo.getLatestIntegratedSummary();
   }
 
   async saveMemory(input: SaveMemoryInput): Promise<Memory> {

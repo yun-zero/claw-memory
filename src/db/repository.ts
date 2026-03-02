@@ -94,4 +94,10 @@ export class MemoryRepository {
       return null;
     }
   }
+
+  getLatestIntegratedSummary(): IntegratedSummary | null {
+    const memories = this.findAll(1);
+    if (memories.length === 0) return null;
+    return memories[0].integratedSummary;
+  }
 }
