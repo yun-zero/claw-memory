@@ -1,6 +1,17 @@
 import type { MemoryService } from '../services/memory.js';
 
-export function createSaveMemoryTool(memoryService: MemoryService) {
+export interface MCPTool {
+  name: string;
+  description: string;
+  inputSchema: {
+    type: 'object';
+    properties: Record<string, any>;
+    required?: string[];
+  };
+  handler: (params: any) => Promise<any>;
+}
+
+export function createSaveMemoryTool(memoryService: MemoryService): MCPTool {
   return {
     name: 'save_memory',
     description: 'Save a conversation memory with structured metadata',
@@ -59,7 +70,7 @@ export function createSaveMemoryTool(memoryService: MemoryService) {
   };
 }
 
-export function createSearchMemoryTool(memoryService: MemoryService) {
+export function createSearchMemoryTool(memoryService: MemoryService): MCPTool {
   return {
     name: 'search_memory',
     description: 'Search memories by query, time range, and tags',
@@ -95,7 +106,7 @@ export function createSearchMemoryTool(memoryService: MemoryService) {
     handler: async (params: any) => {
       const memories = await memoryService.searchMemory(params);
       return {
-        memories: memories.map(m => ({
+        memories: memories.map((m: any) => ({
           id: m.id,
           summary: m.summary,
           importance: m.importance,
@@ -106,7 +117,7 @@ export function createSearchMemoryTool(memoryService: MemoryService) {
   };
 }
 
-export function createGetContextTool(memoryService: MemoryService) {
+export function createGetContextTool(memoryService: MemoryService): MCPTool {
   return {
     name: 'get_context',
     description: 'Get weighted context for a query within token limit',
@@ -132,7 +143,7 @@ export function createGetContextTool(memoryService: MemoryService) {
   };
 }
 
-export function createGetSummaryTool(memoryService: MemoryService) {
+export function createGetSummaryTool(memoryService: MemoryService): MCPTool {
   return {
     name: 'get_summary',
     description: 'Get time period summary (day/week/month)',
@@ -158,7 +169,7 @@ export function createGetSummaryTool(memoryService: MemoryService) {
   };
 }
 
-export function createListMemoriesTool(memoryService: MemoryService) {
+export function createListMemoriesTool(memoryService: MemoryService): MCPTool {
   return {
     name: 'list_memories',
     description: 'List memories with optional filters',
@@ -181,7 +192,7 @@ export function createListMemoriesTool(memoryService: MemoryService) {
   };
 }
 
-export function createDeleteMemoryTool(memoryService: MemoryService) {
+export function createDeleteMemoryTool(memoryService: MemoryService): MCPTool {
   return {
     name: 'delete_memory',
     description: 'Delete a memory by ID',

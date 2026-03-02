@@ -35,7 +35,7 @@ export class MemoryService {
     // 创建记忆记录
     const memoryInput: CreateMemoryInput = {
       contentPath,
-      summary: metadata.summary || null,
+      summary: metadata.summary || undefined,
       importance: metadata.importance ?? 0.5,
       tokenCount: this.estimateTokens(content)
     };
