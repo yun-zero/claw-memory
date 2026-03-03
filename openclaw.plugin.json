@@ -1,9 +1,14 @@
 {
   "id": "claw-memory",
   "name": "ClawMemory",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "AI memory system - auto-save conversations and inject memory summary",
   "main": "./dist/index.js",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
   "dependencies": {},
   "scripts": {
     "build": "tsc"
