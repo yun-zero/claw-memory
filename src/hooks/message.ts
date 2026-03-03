@@ -54,22 +54,16 @@ export async function handleMessageSent(
   // 解析 dataDir 中的 ~
   const resolvedDataDir = dataDir.replace(/^~/, homedir());
 
-  // 确保目录存在
-  if (!fs.existsSync(resolvedDataDir)) {
-    fs.mkdirSync(resolvedDataDir, { recursive: true });
-  }
-
+  // 直接创建目录（recursive: true 已处理存在的情况）
   const memoriesDir = path.join(resolvedDataDir, 'memories');
-  if (!fs.existsSync(memoriesDir)) {
-    fs.mkdirSync(memoriesDir, { recursive: true });
-  }
+  fs.mkdirSync(memoriesDir, { recursive: true });
 
   // 保存记忆
   const memoryId = uuidv4();
   const contentPath = path.join(memoriesDir, `${memoryId}.md`);
 
-  // 写入文件
-  fs.writeFileSync(contentPath, qaContent, 'utf-8');
+  // 异步写入文件
+  await fs.promises.writeFile(contentPath, qaContent, 'utf-8');
 
   // 提取摘要（取前200字符）
   const summary = assistantMessage.substring(0, 200);

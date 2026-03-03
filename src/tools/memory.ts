@@ -36,12 +36,10 @@ export function registerMemoryTools(
       const memoryId = uuidv4();
 
       const memoriesDir = path.join(resolvedDataDir, 'memories');
-      if (!fs.existsSync(memoriesDir)) {
-        fs.mkdirSync(memoriesDir, { recursive: true });
-      }
+      fs.mkdirSync(memoriesDir, { recursive: true });
 
       const contentPath = path.join(memoriesDir, `${memoryId}.md`);
-      fs.writeFileSync(contentPath, content, 'utf-8');
+      await fs.promises.writeFile(contentPath, content, 'utf-8');
 
       db.prepare(`
         INSERT INTO memories (id, content_path, summary, importance, created_at)
@@ -120,17 +118,15 @@ export function registerMemoryTools(
       const memories = db.prepare(`
         SELECT summary, importance, created_at
         FROM memories
-        WHERE date(created_at) >= date(?)
+        WHERE created_at >= ?
         ORDER BY importance DESC
         LIMIT 20
       `).all(startDateStr);
 
-      const count = Array.isArray(memories) ? memories.length : 0;
-
       return {
         period,
-        count,
-        memories: Array.isArray(memories) ? memories.slice(0, 10) : []
+        count: memories.length,
+        memories: memories.slice(0, 10)
       };
     }
   });

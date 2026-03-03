@@ -12,7 +12,7 @@ export async function handleAgentBootstrap(
   const weekMemories = db.prepare(`
     SELECT summary, importance
     FROM memories
-    WHERE date(created_at) >= date(?)
+    WHERE created_at >= ?
     ORDER BY importance DESC
     LIMIT 10
   `).all(weekStartStr) as { summary: string; importance: number }[];
