@@ -240,27 +240,32 @@ npm run test         # 运行测试
 ```
 claw-memory/
 ├── src/
-│   ├── index.ts              # 插件入口
+│   ├── index.ts              # CLI 入口
+│   ├── plugin.ts             # OpenClaw 插件入口
 │   ├── config/
-│   │   └── llm.ts           # LLM 配置
+│   │   ├── llm.ts           # LLM 配置
+│   │   └── plugin.ts        # 插件配置管理
 │   ├── db/
-│   │   ├── schema.ts         # 数据库 Schema
+│   │   ├── schema.ts        # 数据库 Schema
 │   │   ├── repository.ts     # 记忆仓库
 │   │   ├── entityRepository.ts  # 实体仓库
 │   │   └── todoRepository.ts   # 待办仓库
 │   ├── services/
 │   │   ├── memory.ts        # 记忆服务
 │   │   ├── memoryIndex.ts   # 记忆索引服务
-│   │   ├── retrieval.ts      # 检索逻辑
+│   │   ├── retrieval.ts     # 检索逻辑
 │   │   ├── summarizer.ts    # 总结服务
-│   │   ├── scheduler.ts      # 定时任务服务
+│   │   ├── scheduler.ts     # 定时任务服务
 │   │   ├── tagService.ts    # 标签可视化服务
 │   │   ├── entityGraphService.ts  # 实体关系图服务
 │   │   └── metadataExtractor.ts  # LLM 元数据提取
 │   ├── hooks/               # OpenClaw Hooks
 │   │   ├── message.ts       # message:sent Hook
-│   │   └── bootstrap.ts    # agent:bootstrap Hook
-│   └── types.ts            # TypeScript 类型定义
+│   │   └── bootstrap.ts     # agent:bootstrap Hook
+│   ├── tools/               # Agent Tools
+│   │   └── memory.ts        # memory_save/search/summary 工具
+│   └── types.ts             # TypeScript 类型定义
+├── openclaw.plugin.json     # OpenClaw 插件清单
 ├── tests/                   # 测试文件
 ├── docs/
 │   └── plans/              # 设计文档
@@ -292,10 +297,10 @@ npm run build
 - [x] 定时总结/去重 (scheduler)
 - [x] 层级标签管理
 - [x] 实体关系图查询
-- [ ] OpenClaw 插件集成
-  - [ ] message:sent Hook
-  - [ ] agent:bootstrap Hook
-  - [ ] Agent Tools 注册
+- [x] OpenClaw 插件集成
+  - [x] message:sent Hook
+  - [x] agent:bootstrap Hook
+  - [x] Agent Tools 注册
   - [ ] npm 发布
 - [ ] 优化
   - [ ] 语义搜索（可选）
