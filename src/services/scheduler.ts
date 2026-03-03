@@ -206,13 +206,16 @@ export class Scheduler {
     console.log(`[Scheduler] Queued ${type} task (queue size: ${this.taskQueue.length})`);
 
     // Process queue
-    this.processQueue();
+    // Note: Not awaiting async processQueue to avoid blocking the cron scheduler
+    this.processQueue().catch(err => {
+      console.error(`[Scheduler] Error processing queue:`, err);
+    });
   }
 
   /**
    * Processes the task queue
    */
-  private processQueue(): void {
+  private async processQueue(): Promise<void> {
     if (this.taskQueue.length === 0) {
       return;
     }
@@ -224,7 +227,7 @@ export class Scheduler {
 
     switch (task.type) {
       case 'deduplicate':
-        this.deduplicate();
+        await this.deduplicate();
         break;
       case 'daily':
         this.dailySummary();
@@ -244,14 +247,59 @@ export class Scheduler {
   }
 
   /**
-   * Executes deduplication task (placeholder - logs for now)
+   * Executes deduplication task - finds and marks duplicate memories
    */
-  private deduplicate(): void {
-    console.log('[Scheduler] Running deduplicate task...');
-    // TODO: Implement deduplication logic
-    // - Find similar memories based on embeddings
-    // - Mark duplicates with is_duplicate flag
-    // - Update duplicate_of reference
+  private async deduplicate(): Promise<void> {
+    console.log('[Scheduler] Running deduplication...');
+
+    // Get all non-archived memories that are not already marked as duplicates
+    const memories = this.db.prepare(`
+      SELECT id, content_path, importance
+      FROM memories
+      WHERE is_archived = FALSE AND is_duplicate = FALSE
+      ORDER BY created_at DESC
+    `).all() as any[];
+
+    const processed = new Set<string>();
+
+    for (const memory of memories) {
+      if (processed.has(memory.id)) continue;
+
+      // Find similar memories (via shared entities)
+      const similar = this.db.prepare(`
+        SELECT m2.id, m2.content_path, m2.importance
+        FROM memories m1
+        JOIN memory_entities me1 ON m1.id = me1.memory_id
+        JOIN memory_entities me2 ON me1.entity_id = me2.entity_id
+        JOIN memories m2 ON me2.memory_id = m2.id
+        WHERE m1.id = ? AND m2.id != m1.id
+          AND m2.is_archived = FALSE AND m2.is_duplicate = FALSE
+      `).all(memory.id) as any[];
+
+      for (const similarMem of similar) {
+        if (processed.has(similarMem.id)) continue;
+
+        // Mark as duplicate
+        this.db.prepare(`
+          UPDATE memories
+          SET is_duplicate = TRUE, duplicate_of = ?
+          WHERE id = ?
+        `).run(memory.id, similarMem.id);
+
+        // Merge importance
+        const newImportance = Math.min(1, memory.importance + similarMem.importance * 0.5);
+        this.db.prepare(`
+          UPDATE memories SET importance = ? WHERE id = ?
+        `).run(newImportance, memory.id);
+
+        processed.add(similarMem.id);
+        console.log(`[Scheduler] Marked ${similarMem.id} as duplicate of ${memory.id}`);
+      }
+
+      processed.add(memory.id);
+    }
+
+    console.log('[Scheduler] Deduplication completed');
   }
 
   /**
