@@ -3,7 +3,7 @@ import { getConfig, PluginConfig } from './config/plugin.js';
 import { handleMessageSent } from './hooks/message.js';
 import { handleAgentBootstrap } from './hooks/bootstrap.js';
 import { registerMemoryTools } from './tools/memory.js';
-import { SchedulerService } from './services/scheduler.js';
+import { Scheduler } from './services/scheduler.js';
 
 export interface OpenClawPluginContext {
   hooks: {
@@ -69,7 +69,7 @@ export function createPlugin(config?: any): OpenClawPlugin {
       // 启动 Scheduler
       if (pluginConfig.scheduler.enabled) {
         try {
-          const scheduler = new SchedulerService(db, pluginConfig.scheduler);
+          const scheduler = new Scheduler(db, pluginConfig.scheduler);
           scheduler.start();
         } catch (error) {
           console.error('[ClawMemory] Failed to start scheduler:', error);
