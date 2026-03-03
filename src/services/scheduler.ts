@@ -6,6 +6,7 @@
 import Database from 'better-sqlite3';
 import cron, { ScheduledTask } from 'node-cron';
 import { generateSummaryWithLLM } from '../config/llm.js';
+import { Summarizer } from './summarizer.js';
 
 /**
  * Scheduler configuration interface
@@ -234,10 +235,10 @@ export class Scheduler {
         await this.dailySummary();
         break;
       case 'weekly':
-        this.weeklySummary();
+        await this.weeklySummary();
         break;
       case 'monthly':
-        this.monthlySummary();
+        await this.monthlySummary();
         break;
     }
 
@@ -366,25 +367,120 @@ export class Scheduler {
   }
 
   /**
-   * Executes weekly summary task (placeholder - logs for now)
+   * Executes weekly summary task
    */
-  private weeklySummary(): void {
-    console.log('[Scheduler] Running weekly summary task...');
-    // TODO: Implement weekly summary logic
-    // - Query memories from the past week
-    // - Generate comprehensive report
-    // - Use SummarizerService
+  private async weeklySummary(): Promise<void> {
+    console.log('[Scheduler] Running weekly summary...');
+
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+    const weekStart = new Date(now.getFullYear(), now.getMonth(), diff);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekStartStr = weekStart.toISOString().split('T')[0];
+
+    // Check if summary already exists
+    const existing = this.db.prepare(`
+      SELECT summary FROM time_buckets WHERE date = ?
+    `).get(weekStartStr) as { summary?: string } | undefined;
+
+    if (existing?.summary) {
+      console.log(`[Scheduler] Weekly summary for ${weekStartStr} already exists`);
+      return;
+    }
+
+    // Get all memories for this week
+    const memories = this.db.prepare(`
+      SELECT id, content_path FROM memories
+      WHERE date(created_at) >= date(?) AND date(created_at) <= date('now')
+    `).all(weekStartStr) as any[];
+
+    if (memories.length === 0) {
+      console.log(`[Scheduler] No memories for week ${weekStartStr}, skipping`);
+      return;
+    }
+
+    // Read memory contents and generate weekly summary
+    const fs = await import('fs/promises');
+    const contents: string[] = [];
+
+    for (const mem of memories.slice(0, 10)) {
+      try {
+        const content = await fs.readFile(mem.content_path, 'utf-8');
+        contents.push(content.slice(0, 500));
+      } catch (e) {
+        // Skip files that can't be read
+      }
+    }
+
+    const summarizer = new Summarizer(this.db);
+    const report = {
+      period: 'week',
+      startDate: weekStartStr,
+      endDate: now.toISOString().split('T')[0],
+      memoryCount: memories.length,
+      memories: contents
+    };
+
+    try {
+      const summary = await summarizer.generateWeeklySummary(report);
+      this.db.prepare(`
+        INSERT OR REPLACE INTO time_buckets (date, summary, summary_generated_at, memory_count)
+        VALUES (?, ?, datetime('now'), ?)
+      `).run(weekStartStr, summary, memories.length);
+      console.log(`[Scheduler] Weekly summary generated for ${weekStartStr}`);
+    } catch (error) {
+      console.error('[Scheduler] Failed to generate weekly summary:', error);
+    }
   }
 
   /**
-   * Executes monthly summary task (placeholder - logs for now)
+   * Executes monthly summary task
    */
-  private monthlySummary(): void {
-    console.log('[Scheduler] Running monthly summary task...');
-    // TODO: Implement monthly summary logic
-    // - Query memories from the past month
-    // - Generate monthly report
-    // - Update integrated summary
+  private async monthlySummary(): Promise<void> {
+    console.log('[Scheduler] Running monthly summary...');
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthStartStr = monthStart.toISOString().split('T')[0];
+
+    const existing = this.db.prepare(`
+      SELECT summary FROM time_buckets WHERE date = ?
+    `).get(monthStartStr) as { summary?: string } | undefined;
+
+    if (existing?.summary) {
+      console.log(`[Scheduler] Monthly summary for ${monthStartStr} already exists`);
+      return;
+    }
+
+    const memories = this.db.prepare(`
+      SELECT id FROM memories
+      WHERE date(created_at) >= date(?) AND date(created_at) <= date('now')
+    `).all(monthStartStr) as any[];
+
+    if (memories.length === 0) {
+      console.log(`[Scheduler] No memories for month ${monthStartStr}, skipping`);
+      return;
+    }
+
+    const summarizer = new Summarizer(this.db);
+    const report = {
+      period: 'month',
+      startDate: monthStartStr,
+      endDate: now.toISOString().split('T')[0],
+      memoryCount: memories.length
+    };
+
+    try {
+      const summary = await summarizer.generateMonthlySummary(report);
+      this.db.prepare(`
+        INSERT OR REPLACE INTO time_buckets (date, summary, summary_generated_at, memory_count)
+        VALUES (?, ?, datetime('now'), ?)
+      `).run(monthStartStr, summary, memories.length);
+      console.log(`[Scheduler] Monthly summary generated for ${monthStartStr}`);
+    } catch (error) {
+      console.error('[Scheduler] Failed to generate monthly summary:', error);
+    }
   }
 
   /**
