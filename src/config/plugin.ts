@@ -1,3 +1,6 @@
+import os from 'os';
+import path from 'path';
+
 export interface PluginConfig {
   enabled: boolean;
   autoSave: boolean;
@@ -12,12 +15,19 @@ export interface PluginConfig {
   };
 }
 
+function expandTilde(filepath: string): string {
+  if (filepath.startsWith('~/') || filepath === '~') {
+    return path.join(os.homedir(), filepath.slice(1));
+  }
+  return filepath;
+}
+
 export function getConfig(config?: any): PluginConfig {
   const defaultConfig: PluginConfig = {
     enabled: true,
     autoSave: true,
     saveMode: 'qa',
-    dataDir: '~/.openclaw/claw-memory',
+    dataDir: expandTilde('~/.openclaw/claw-memory'),
     scheduler: {
       enabled: true,
       deduplicateTime: '01:00',
@@ -35,7 +45,7 @@ export function getConfig(config?: any): PluginConfig {
     enabled: config.enabled ?? defaultConfig.enabled,
     autoSave: config.autoSave ?? defaultConfig.autoSave,
     saveMode: config.saveMode ?? defaultConfig.saveMode,
-    dataDir: config.dataDir ?? defaultConfig.dataDir,
+    dataDir: expandTilde(config.dataDir ?? defaultConfig.dataDir),
     scheduler: {
       enabled: config.scheduler?.enabled ?? defaultConfig.scheduler.enabled,
       deduplicateTime: config.scheduler?.deduplicateTime ?? defaultConfig.scheduler.deduplicateTime,
