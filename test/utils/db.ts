@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { getDatabase } from '../../src/db/schema.js';
+import { initializeDatabase } from '../../src/db/schema.js';
 import path from 'path';
 import fs from 'fs';
 
@@ -13,7 +13,10 @@ export function setupTestDB(): Database.Database {
   if (fs.existsSync(TEST_DB_PATH)) {
     fs.unlinkSync(TEST_DB_PATH);
   }
-  return getDatabase(TEST_DB_PATH);
+  // Create new database instance directly to avoid singleton issue
+  const db = new Database(TEST_DB_PATH);
+  initializeDatabase(db);
+  return db;
 }
 
 export function cleanupTestDB(): void {
