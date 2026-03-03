@@ -6,6 +6,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { getDatabase } from './db/schema.js';
 import { MemoryService } from './services/memory.js';
+import { EntityGraphService } from './services/entityGraphService.js';
 import {
   createSaveMemoryTool,
   createSearchMemoryTool,
@@ -88,6 +89,35 @@ program
   .action((options) => {
     const db = getDatabase(`${options.dataDir}/memory.db`);
     console.log('Database initialized');
+  });
+
+// Relations command with subcommands
+const relationsCmd = program
+  .command('relations')
+  .description('Entity relations commands');
+
+relationsCmd
+  .command('graph')
+  .description('Generate HTML graph visualization')
+  .option('-d, --data-dir <dir>', 'Data directory', './memories')
+  .option('-o, --output <file>', 'Output file path', 'entity-graph.html')
+  .action((options) => {
+    const db = getDatabase(`${options.dataDir}/memory.db`);
+    const entityGraphService = new EntityGraphService(db);
+    entityGraphService.saveGraphHtml(options.output);
+    console.log(`Graph HTML saved to ${options.output}`);
+  });
+
+relationsCmd
+  .command('stats')
+  .description('Generate HTML statistics page')
+  .option('-d, --data-dir <dir>', 'Data directory', './memories')
+  .option('-o, --output <file>', 'Output file path', 'relation-stats.html')
+  .action((options) => {
+    const db = getDatabase(`${options.dataDir}/memory.db`);
+    const entityGraphService = new EntityGraphService(db);
+    entityGraphService.saveStatsHtml(options.output);
+    console.log(`Stats HTML saved to ${options.output}`);
   });
 
 program.parse();
