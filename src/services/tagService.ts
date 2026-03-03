@@ -152,6 +152,144 @@ export class TagService {
   }
 
   /**
+   * Generate collapsible tag tree HTML
+   */
+  generateTreeHtml(data: { totalTags: number; maxLevel: number; tree: TagNode[] }): string {
+    const renderNode = (node: TagNode, indent: number = 0): string => {
+      const padding = '  '.repeat(indent);
+      let html = `${padding}<div class="tag-item" data-level="${node.level}">\n`;
+      html += `${padding}  <div class="tag-header" onclick="toggle(this)">\n`;
+      html += `${padding}    <span class="toggle">${node.children.length ? '▶' : '·'}</span>\n`;
+      html += `${padding}    <span class="tag-name">${node.name}</span>\n`;
+      html += `${padding}    <span class="tag-count">(${node.memoryCount}条记忆, ${node.usageCount}次使用)</span>\n`;
+      html += `${padding}  </div>\n`;
+
+      if (node.children.length > 0) {
+        html += `${padding}  <div class="tag-children" style="display:none;">\n`;
+        for (const child of node.children) {
+          html += renderNode(child, indent + 2);
+        }
+        html += `${padding}  </div>\n`;
+      }
+
+      html += `${padding}</div>\n`;
+      return html;
+    };
+
+    let html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>标签树 - ${data.totalTags} 个标签</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; }
+    .tag-item { margin: 4px 0; }
+    .tag-header { cursor: pointer; padding: 4px 8px; border-radius: 4px; }
+    .tag-header:hover { background: #f0f0f0; }
+    .toggle { display: inline-block; width: 20px; color: #666; }
+    .tag-name { font-weight: 500; color: #333; }
+    .tag-count { color: #999; font-size: 12px; margin-left: 8px; }
+    .tag-children { margin-left: 20px; border-left: 1px solid #eee; padding-left: 8px; }
+  </style>
+</head>
+<body>
+  <h1>标签树 (${data.totalTags} 个标签, 最大层级: ${data.maxLevel})</h1>
+  <script>
+    function toggle(el) {
+      const children = el.nextElementSibling;
+      if (children) children.style.display = children.style.display === 'none' ? 'block' : 'none';
+      const arrow = el.querySelector('.toggle');
+      if (arrow) arrow.textContent = children.style.display === 'none' ? '▶' : '▼';
+    }
+  </script>
+`;
+
+    for (const node of data.tree) {
+      html += renderNode(node);
+    }
+
+    html += `</body></html>`;
+    return html;
+  }
+
+  /**
+   * Generate tag statistics HTML
+   */
+  generateStatsHtml(stats: TagStats): string {
+    const maxUsage = Math.max(...stats.usageStats.map(s => s.count), 1);
+
+    let html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>标签统计</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; }
+    h1, h2 { color: #333; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 20px 0; }
+    .stat-card { background: #f9f9f9; padding: 20px; border-radius: 8px; text-align: center; }
+    .stat-number { font-size: 36px; font-weight: bold; color: #4a90d9; }
+    .stat-label { color: #666; margin-top: 8px; }
+    .bar-chart { margin: 20px 0; }
+    .bar { background: #4a90d9; color: white; padding: 8px 12px; margin: 4px 0; border-radius: 4px; }
+    .recent-list { list-style: none; padding: 0; }
+    .recent-list li { padding: 8px; border-bottom: 1px solid #eee; }
+    .level-grid { display: flex; gap: 10px; flex-wrap: wrap; }
+    .level-badge { background: #e0e0e0; padding: 8px 16px; border-radius: 16px; }
+  </style>
+</head>
+<body>
+  <h1>标签统计</h1>
+
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-number">${stats.totalTags}</div>
+      <div class="stat-label">总标签数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">${stats.totalMemories}</div>
+      <div class="stat-label">总记忆数</div>
+    </div>
+  </div>
+
+  <h2>使用频率排行</h2>
+  <div class="bar-chart">
+`;
+
+    for (const s of stats.usageStats) {
+      const width = Math.round((s.count / maxUsage) * 100);
+      html += `    <div class="bar" style="width: ${width}%">${s.name} (${s.count})</div>\n`;
+    }
+
+    html += `  </div>
+
+  <h2>层级分布</h2>
+  <div class="level-grid">
+`;
+
+    for (const [level, count] of Object.entries(stats.levelDistribution)) {
+      html += `    <div class="level-badge">Level ${level}: ${count}</div>\n`;
+    }
+
+    html += `  </div>
+
+  <h2>最近使用</h2>
+  <ul class="recent-list">
+`;
+
+    for (const r of stats.recentlyUsed) {
+      const date = new Date(r.lastUsedAt).toLocaleDateString('zh-CN');
+      html += `    <li>${r.name} - ${date}</li>\n`;
+    }
+
+    html += `  </ul>
+</body>
+</html>`;
+
+    return html;
+  }
+
+  /**
    * Build hierarchical tag tree from flat tag list
    */
   private buildTagTree(tags: { name: string; level: number }[]): TagNode[] {
