@@ -34,6 +34,9 @@
 - 🤖 **LLM 元数据提取** - 自动提取标签、关键词、主题和重要性评分
 - 📝 **增量摘要更新** - LLM 单次调用同时更新会话摘要和整体摘要
 - ✅ **待办事项管理** - 支持 day/week/month 周期的待办管理
+- ⏱️ **定时任务系统** - 自动每日/每周/每月总结，自动去重
+- 📊 **标签可视化** - CLI 生成静态 HTML 报告，展示标签树和统计
+- 🔍 **实体关系图查询** - MCP 工具查询实体关联，D3.js 可视化
 
 ## 架构
 
@@ -46,12 +49,21 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Claw-Memory MCP Server                      │
 ├─────────────────────────────────────────────────────────────────┤
-│  Tools:                                                         │
+│  MCP Tools:                                                     │
 │  ├── save_memory        保存会话记忆（含 LLM 元数据提取）         │
 │  ├── search_memory      检索相关记忆                              │
 │  ├── get_context        获取上下文（按权重加载）                  │
 │  ├── get_summary        获取时间周期总结                          │
-│  └── list_memories      列出记忆列表                              │
+│  ├── list_memories      列出记忆列表                            │
+│  ├── get_entity_relations    查询实体直接关联                   │
+│  ├── query_entity_graph      多跳关系图查询                      │
+│  └── get_relation_stats      关系统计                            │
+│                                                                 │
+│  Scheduler:                                                      │
+│  ├── 01:00 去重任务                                             │
+│  ├── 02:00 每日总结                                             │
+│  ├── 03:00 每周总结                                             │
+│  └── 04:00 每月总结                                             │
 └─────────────────────────────────────────────────────────────────┘
                                 │
         ┌───────────────────────┼───────────────────────┐
@@ -221,7 +233,10 @@ const memories = await mcp.callTool("list_memories", {
 | `get_context` | 获取加权上下文，限制 Token 数 |
 | `get_summary` | 获取时间周期总结 |
 | `list_memories` | 列出指定条件的记忆 |
-| `delete_memory` | 删除指定记忆（暂未实现） |
+| `delete_memory` | 删除指定记忆 |
+| `get_entity_relations` | 查询实体的直接关联 |
+| `query_entity_graph` | 多跳查询实体关系图（默认2跳，最大5跳） |
+| `get_relation_stats` | 获取关系统计 |
 
 ### CLI 命令
 
@@ -230,14 +245,23 @@ const memories = await mcp.callTool("list_memories", {
 claw-memory serve [options]
 
 # 选项:
-#   -p, --port <port>     服务端口 (默认: 18790)
-#   -d, --data-dir <dir>  数据目录 (默认: ./memories)
+#   -p, --port <port>           服务端口 (默认: 18790)
+#   -d, --data-dir <dir>       数据目录 (默认: ./memories)
+#   -s, --scheduler-disabled    禁用定时任务
 
 # 初始化数据库
 claw-memory init [options]
 
 # 选项:
 #   -d, --data-dir <dir>  数据目录 (默认: ./memories)
+
+# 标签可视化
+claw-memory tags tree [--output <file>]    # 生成标签树 HTML
+claw-memory tags stats [--output <file>]   # 生成标签统计 HTML
+
+# 实体关系图
+claw-memory relations graph [--entity <name>] [--hops <n>] [--output <file>]
+claw-memory relations stats [--output <file>]
 ```
 
 ### NPM Scripts
@@ -262,6 +286,11 @@ npm run format       # 代码格式化
 | `LLM_BASE_URL` | 供应商默认 | API 基础 URL |
 | `LLM_API_KEY` | - | **必需** - LLM API Key |
 | `LLM_MODEL` | 供应商默认 | LLM 模型名称 |
+| `SCHEDULER_ENABLED` | `true` | 启用定时任务 |
+| `SCHEDULER_DEDUPE_TIME` | `01:00` | 去重任务执行时间 (HH:mm) |
+| `SCHEDULER_DAILY_TIME` | `02:00` | 每日总结执行时间 (HH:mm) |
+| `SCHEDULER_WEEKLY_TIME` | `03:00` | 每周总结执行时间 (HH:mm) |
+| `SCHEDULER_MONTHLY_TIME` | `04:00` | 每月总结执行时间 (HH:mm) |
 
 #### LLM 提供商配置示例
 
@@ -323,6 +352,9 @@ claw-memory/
 │   │   ├── memoryIndex.ts   # 记忆索引服务
 │   │   ├── retrieval.ts     # 检索逻辑
 │   │   ├── summarizer.ts    # 总结服务
+│   │   ├── scheduler.ts     # 定时任务服务
+│   │   ├── tagService.ts    # 标签可视化服务
+│   │   ├── entityGraphService.ts  # 实体关系图服务
 │   │   └── metadataExtractor.ts  # LLM 元数据提取
 │   ├── mcp/
 │   │   └── tools.ts         # MCP 工具定义
@@ -367,10 +399,10 @@ npm run build
   - [x] LLM 元数据提取
   - [x] 增量摘要更新
   - [x] 多 LLM 提供商支持 (OpenAI, Anthropic, OpenAI 兼容)
-- [ ] 增强功能
-  - [ ] 层级标签管理工具
-  - [ ] 实体关系图查询
-  - [ ] 定时总结/去重 (scheduler)
+- [x] 增强功能
+  - [x] 层级标签管理工具
+  - [x] 实体关系图查询
+  - [x] 定时总结/去重 (scheduler)
 - [ ] 集成
   - [ ] OpenClaw hook
   - [x] Claude Code MCP
