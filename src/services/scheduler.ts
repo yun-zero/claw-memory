@@ -65,6 +65,10 @@ export class Scheduler {
    * @param config - Optional configuration (uses DEFAULT_CONFIG if not provided)
    */
   constructor(db: Database.Database, config?: Partial<SchedulerConfig>) {
+    // DEBUG: Scheduler 构造函数日志
+    console.log('[ClawMemory] Scheduler constructor called');
+    console.log('[ClawMemory] Scheduler config:', JSON.stringify(config));
+
     // 合并环境变量配置
     const envConfig: Partial<SchedulerConfig> = {};
 
