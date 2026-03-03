@@ -63,6 +63,8 @@ export async function generateSummaryWithLLM(
 
   if (llmConfig.format === 'anthropic') {
     return generateWithAnthropic(systemPrompt, report, llmConfig);
+  } else if (llmConfig.format === 'openai-compatible') {
+    return generateWithOpenAICompatible(systemPrompt, report, llmConfig);
   } else {
     return generateWithOpenAI(systemPrompt, report, llmConfig);
   }
@@ -102,7 +104,7 @@ async function generateWithOpenAI(
   userPrompt: string,
   config: LLMConfig
 ): Promise<string> {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -121,6 +123,36 @@ async function generateWithOpenAI(
   if (!response.ok) {
     const error = await response.text();
     throw new Error(`OpenAI API error: ${error}`);
+  }
+
+  const data = await response.json() as { choices: { message: { content: string } }[] };
+  return data.choices[0]?.message?.content || '总结生成失败';
+}
+
+async function generateWithOpenAICompatible(
+  systemPrompt: string,
+  userPrompt: string,
+  config: LLMConfig
+): Promise<string> {
+  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${config.apiKey}`
+    },
+    body: JSON.stringify({
+      model: config.model,
+      max_tokens: 1024,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`OpenAI Compatible API error: ${error}`);
   }
 
   const data = await response.json() as { choices: { message: { content: string } }[] };
