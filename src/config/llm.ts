@@ -18,6 +18,12 @@ const LLM_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
 };
 
 export function getLLMConfig(): LLMConfig {
+  // DEBUG: getLLMConfig 调用日志
+  console.log('[ClawMemory] getLLMConfig() called');
+  console.log('[ClawMemory] env LLM_API_KEY:', process.env.LLM_API_KEY ? 'SET' : 'NOT SET');
+  console.log('[ClawMemory] env OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? 'SET' : 'NOT SET');
+  console.log('[ClawMemory] env LLM_FORMAT:', process.env.LLM_FORMAT || 'NOT SET (default: openai)');
+
   const format = (process.env.LLM_FORMAT as LLMConfig['format']) || 'openai';
   const baseUrl = process.env.LLM_BASE_URL || getDefaultBaseUrl(format);
   const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || '';

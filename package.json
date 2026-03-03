@@ -1,11 +1,14 @@
 {
   "name": "@yun-zero/claw-memory",
-  "version": "0.1.7",
+  "version": "0.2.1",
   "description": "OpenClaw 记忆插件 - 自动保存对话，智能注入上下文",
   "main": "dist/plugin.js",
   "type": "module",
   "openclaw": {
     "extensions": ["./dist/plugin.js"]
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3"]
   },
   "scripts": {
     "build": "tsc",
@@ -21,6 +24,7 @@
     "better-sqlite3": "^11.0.0",
     "commander": "^12.0.0",
     "node-cron": "^4.2.1",
+    "openclaw": "^2026.3.2",
     "uuid": "^10.0.0"
   },
   "devDependencies": {
