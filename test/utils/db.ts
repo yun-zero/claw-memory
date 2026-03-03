@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { initializeDatabase } from '../../src/db/schema.js';
+import { initializeDatabase, resetDbInstance } from '../../src/db/schema.js';
 import path from 'path';
 import fs from 'fs';
 
@@ -7,6 +7,9 @@ const TEST_DB_DIR = path.join(process.cwd(), 'test', 'data');
 const TEST_DB_PATH = path.join(TEST_DB_DIR, 'test-memory.db');
 
 export function setupTestDB(): Database.Database {
+  // Reset singleton to avoid conflicts
+  resetDbInstance();
+
   if (!fs.existsSync(TEST_DB_DIR)) {
     fs.mkdirSync(TEST_DB_DIR, { recursive: true });
   }

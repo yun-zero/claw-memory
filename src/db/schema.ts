@@ -105,6 +105,13 @@ export function initializeDatabase(db: Database.Database): void {
 
 let dbInstance: Database.Database | null = null;
 
+export function resetDbInstance(): void {
+  if (dbInstance) {
+    dbInstance.close();
+    dbInstance = null;
+  }
+}
+
 export function getDatabase(dbPath: string = './memories/memory.db'): Database.Database {
   if (!dbInstance) {
     dbInstance = new Database(dbPath);

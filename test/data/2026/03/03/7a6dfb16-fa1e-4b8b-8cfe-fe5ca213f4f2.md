@@ -1,0 +1,1 @@
+Test content 70 for domain product
