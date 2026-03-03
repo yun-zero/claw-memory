@@ -6,14 +6,19 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { getDatabase } from './db/schema.js';
 import { MemoryService } from './services/memory.js';
-import { EntityGraphService } from './services/entityGraphService.js';
+import { TagService } from './services/tagService.js';
+import { Scheduler } from './services/scheduler.js';
+import { writeFile } from 'fs/promises';
 import {
   createSaveMemoryTool,
   createSearchMemoryTool,
   createGetContextTool,
   createGetSummaryTool,
   createListMemoriesTool,
-  createDeleteMemoryTool
+  createDeleteMemoryTool,
+  createGetEntityRelationsTool,
+  createQueryEntityGraphTool,
+  createGetRelationStatsTool
 } from './mcp/tools.js';
 
 const program = new Command();
@@ -28,9 +33,18 @@ program
   .description('Start MCP server')
   .option('-p, --port <port>', 'Server port', '18790')
   .option('-d, --data-dir <dir>', 'Data directory', './memories')
+  .option('-s, --scheduler-disabled', 'Disable scheduler', false)
   .action(async (options) => {
     const db = getDatabase(`${options.dataDir}/memory.db`);
     const memoryService = new MemoryService(db, options.dataDir);
+
+    const scheduler = new Scheduler(db, {
+      enabled: !options.schedulerDisabled
+    });
+
+    if (!options.schedulerDisabled) {
+      scheduler.start();
+    }
 
     const server = new Server(
       {
@@ -52,7 +66,10 @@ program
           createGetContextTool(memoryService),
           createGetSummaryTool(memoryService),
           createListMemoriesTool(memoryService),
-          createDeleteMemoryTool(memoryService)
+          createDeleteMemoryTool(memoryService),
+          createGetEntityRelationsTool(db),
+          createQueryEntityGraphTool(db),
+          createGetRelationStatsTool(db)
         ] as any
       };
     });
@@ -66,7 +83,10 @@ program
         get_context: createGetContextTool(memoryService),
         get_summary: createGetSummaryTool(memoryService),
         list_memories: createListMemoriesTool(memoryService),
-        delete_memory: createDeleteMemoryTool(memoryService)
+        delete_memory: createDeleteMemoryTool(memoryService),
+        get_entity_relations: createGetEntityRelationsTool(db),
+        query_entity_graph: createQueryEntityGraphTool(db),
+        get_relation_stats: createGetRelationStatsTool(db)
       };
 
       const tool = tools[name as keyof typeof tools];
@@ -91,33 +111,30 @@ program
     console.log('Database initialized');
   });
 
-// Relations command with subcommands
-const relationsCmd = program
-  .command('relations')
-  .description('Entity relations commands');
-
-relationsCmd
-  .command('graph')
-  .description('Generate HTML graph visualization')
+program
+  .command('tags <action>')
+  .description('标签管理命令')
+  .option('-o, --output <file>', '输出文件路径')
   .option('-d, --data-dir <dir>', 'Data directory', './memories')
-  .option('-o, --output <file>', 'Output file path', 'entity-graph.html')
-  .action((options) => {
+  .action(async (action, options) => {
     const db = getDatabase(`${options.dataDir}/memory.db`);
-    const entityGraphService = new EntityGraphService(db);
-    entityGraphService.saveGraphHtml(options.output);
-    console.log(`Graph HTML saved to ${options.output}`);
-  });
+    const tagService = new TagService(db);
+    const outputFile = options.output || (action === 'tree' ? 'tags-tree.html' : 'tags-stats.html');
 
-relationsCmd
-  .command('stats')
-  .description('Generate HTML statistics page')
-  .option('-d, --data-dir <dir>', 'Data directory', './memories')
-  .option('-o, --output <file>', 'Output file path', 'relation-stats.html')
-  .action((options) => {
-    const db = getDatabase(`${options.dataDir}/memory.db`);
-    const entityGraphService = new EntityGraphService(db);
-    entityGraphService.saveStatsHtml(options.output);
-    console.log(`Stats HTML saved to ${options.output}`);
+    if (action === 'tree') {
+      const data = await tagService.getTagTree();
+      const html = tagService.generateTreeHtml(data);
+      await writeFile(outputFile, html);
+      console.log(`标签树已生成: ${outputFile}`);
+    } else if (action === 'stats') {
+      const stats = await tagService.getTagStats();
+      const html = tagService.generateStatsHtml(stats);
+      await writeFile(outputFile, html);
+      console.log(`标签统计已生成: ${outputFile}`);
+    } else {
+      console.error('未知命令: tree 或 stats');
+      process.exit(1);
+    }
   });
 
 program.parse();

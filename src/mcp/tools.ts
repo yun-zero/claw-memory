@@ -2,6 +2,7 @@ import type { MemoryService } from '../services/memory.js';
 import Database from 'better-sqlite3';
 import { getMemoryIndex } from '../services/memoryIndex.js';
 import { TodoRepository, CreateTodoInput } from '../db/todoRepository.js';
+import { EntityGraphService } from '../services/entityGraphService.js';
 
 export interface MCPTool {
   name: string;
@@ -310,6 +311,79 @@ export function createCompleteTodoTool(db: Database.Database): MCPTool {
       const repo = new TodoRepository(db);
       repo.markCompleted(params.id);
       return { success: true };
+    }
+  };
+}
+
+export function createGetEntityRelationsTool(db: Database.Database): MCPTool {
+  return {
+    name: 'get_entity_relations',
+    description: 'Get all relations for a specific entity by name',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        entity_name: {
+          type: 'string',
+          description: 'The name of the entity to get relations for'
+        }
+      },
+      required: ['entity_name']
+    },
+    handler: async (params) => {
+      const service = new EntityGraphService(db);
+      const relations = service.getEntityRelations(params.entity_name);
+      return { relations };
+    }
+  };
+}
+
+export function createQueryEntityGraphTool(db: Database.Database): MCPTool {
+  return {
+    name: 'query_entity_graph',
+    description: 'Query entity graph - find path or get subgraph between entities',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        start_entity: {
+          type: 'string',
+          description: 'The starting entity name'
+        },
+        end_entity: {
+          type: 'string',
+          description: 'The ending entity name (optional)'
+        },
+        max_hops: {
+          type: 'number',
+          default: 2,
+          description: 'Maximum number of hops to traverse'
+        }
+      },
+      required: ['start_entity']
+    },
+    handler: async (params) => {
+      const service = new EntityGraphService(db);
+      const result = service.queryEntityGraph(
+        params.start_entity,
+        params.end_entity,
+        params.max_hops || 2
+      );
+      return result;
+    }
+  };
+}
+
+export function createGetRelationStatsTool(db: Database.Database): MCPTool {
+  return {
+    name: 'get_relation_stats',
+    description: 'Get statistics about entity relations',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {}
+    },
+    handler: async (_params) => {
+      const service = new EntityGraphService(db);
+      const stats = service.getRelationStats();
+      return stats;
     }
   };
 }

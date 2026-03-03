@@ -5,6 +5,7 @@
 
 import Database from 'better-sqlite3';
 import type { Memory, WeeklyReport } from '../types.js';
+import { generateSummaryWithLLM } from '../config/llm.js';
 
 export class SummarizerService {
   private db: Database.Database;
@@ -265,4 +266,53 @@ export class SummarizerService {
 
     return lines.join('\n');
   }
+
+  /**
+   * Generate weekly summary using LLM
+   */
+  async generateWeeklySummary(report: {
+    period: string;
+    startDate: string;
+    endDate: string;
+    memoryCount: number;
+    memories?: string[];
+  }): Promise<string> {
+    const stats = await this.aggregateMemories(report.startDate, report.endDate);
+    const statsString = this.reportToString(stats);
+
+    let prompt = `请为以下周报数据生成一个简洁的中文摘要（100-200字）：\n\n${statsString}`;
+
+    if (report.memories && report.memories.length > 0) {
+      prompt += `\n\n## 本周重要记忆内容：\n${report.memories.join('\n---\n')}`;
+    }
+
+    return await generateSummaryWithLLM(prompt);
+  }
+
+  /**
+   * Generate monthly summary using LLM
+   */
+  async generateMonthlySummary(report: {
+    period: string;
+    startDate: string;
+    endDate: string;
+    memoryCount: number;
+    memories?: string[];
+  }): Promise<string> {
+    const stats = await this.aggregateMemories(report.startDate, report.endDate);
+    const statsString = this.reportToString(stats);
+
+    let prompt = `请为以下月报数据生成一个简洁的中文摘要（150-300字）：\n\n${statsString}`;
+
+    if (report.memories && report.memories.length > 0) {
+      prompt += `\n\n## 本月重要记忆内容：\n${report.memories.join('\n---\n')}`;
+    }
+
+    return await generateSummaryWithLLM(prompt);
+  }
 }
+
+/**
+ * Alias for SummarizerService for backwards compatibility
+ */
+export { SummarizerService as Summarizer };
