@@ -6,6 +6,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { getDatabase } from './db/schema.js';
 import { MemoryService } from './services/memory.js';
+import { Scheduler } from './services/scheduler.js';
 import {
   createSaveMemoryTool,
   createSearchMemoryTool,
@@ -30,6 +31,9 @@ program
   .action(async (options) => {
     const db = getDatabase(`${options.dataDir}/memory.db`);
     const memoryService = new MemoryService(db, options.dataDir);
+
+    const scheduler = new Scheduler(db);
+    scheduler.start();
 
     const server = new Server(
       {
