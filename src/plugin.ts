@@ -88,8 +88,8 @@ const clawMemoryPlugin = {
         // 1. 保存记忆
         const memoryId = crypto.randomUUID();
         db.prepare(`
-          INSERT INTO memories (id, content_path, summary, created_at)
-          VALUES (?, ?, ?, datetime('now'))
+          INSERT INTO memories (id, content_path, summary, role, created_at)
+          VALUES (?, ?, ?, 'user', datetime('now'))
         `).run(memoryId, "", content.substring(0, 200));
 
         console.log("[ClawMemory] Memory saved:", memoryId);
@@ -177,6 +177,83 @@ const clawMemoryPlugin = {
         return { prependContext: context };
       } catch (error) {
         console.error("[ClawMemory] Error:", error);
+      }
+    });
+
+    // 注册 agent_end hook - 保存 AI 回复
+    api.on("agent_end", async (event: any) => {
+      console.log("[ClawMemory] agent_end hook triggered!");
+
+      if (!db || !pluginConfig.autoSave) return;
+
+      try {
+        const messages = event.messages;
+        if (!messages || !Array.isArray(messages)) {
+          console.log("[ClawMemory] No messages in event");
+          return;
+        }
+
+        console.log(`[ClawMemory] Processing ${messages.length} messages`);
+
+        // 简单哈希函数
+        const simpleHash = (str: string): string => {
+          let hash = 0;
+          for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
+          }
+          return hash.toString(16);
+        };
+
+        // 处理每条消息
+        for (const msg of messages) {
+          // 提取 role
+          const role = msg.role || msg.type || 'unknown';
+          if (role !== 'assistant' && role !== 'ai') continue;
+
+          // 提取内容
+          let content = '';
+          if (typeof msg.content === 'string') {
+            content = msg.content;
+          } else if (Array.isArray(msg.content)) {
+            // 处理数组格式 [{ type: 'text', text: '...' }]
+            content = msg.content
+              .filter((c: any) => c.type === 'text')
+              .map((c: any) => c.text)
+              .join('');
+          } else if (typeof msg.content === 'object' && msg.content !== null) {
+            // 处理对象格式 { text: '...' }
+            content = msg.content.text || msg.content.content || JSON.stringify(msg.content);
+          }
+
+          // 过滤短内容
+          if (!content || content.length < 10) continue;
+
+          // 计算内容哈希
+          const contentHash = simpleHash(content.substring(0, 500));
+
+          // 检查是否已存在相同哈希
+          const existing = db.prepare(`
+            SELECT id FROM memories WHERE content_hash = ?
+          `).get(contentHash) as any;
+
+          if (existing) {
+            console.log(`[ClawMemory] Skipping duplicate AI response (hash: ${contentHash.substring(0, 8)}...)`);
+            continue;
+          }
+
+          // 保存 AI 回复
+          const memoryId = crypto.randomUUID();
+          db.prepare(`
+            INSERT INTO memories (id, content_path, summary, role, content_hash, created_at)
+            VALUES (?, ?, ?, 'assistant', ?, datetime('now'))
+          `).run(memoryId, "", content.substring(0, 200), contentHash);
+
+          console.log(`[ClawMemory] Saved AI response: ${content.substring(0, 50)}... (hash: ${contentHash.substring(0, 8)}...)`);
+        }
+      } catch (error) {
+        console.error("[ClawMemory] Error in agent_end:", error);
       }
     });
 

@@ -16,9 +16,15 @@ export function initializeDatabase(db: Database.Database): void {
       last_accessed_at TIMESTAMP,
       is_archived BOOLEAN DEFAULT FALSE,
       is_duplicate BOOLEAN DEFAULT FALSE,
-      duplicate_of TEXT
+      duplicate_of TEXT,
+      role TEXT DEFAULT 'user',
+      content_hash TEXT
     )
   `);
+
+  // 添加 role 和 content_hash 列（如果不存在）
+  db.exec(`ALTER TABLE memories ADD COLUMN role TEXT DEFAULT 'user'`);
+  db.exec(`ALTER TABLE memories ADD COLUMN content_hash TEXT`);
 
   // 2. 实体表
   db.exec(`
@@ -94,6 +100,8 @@ export function initializeDatabase(db: Database.Database): void {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);
     CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance);
+    CREATE INDEX IF NOT EXISTS idx_memories_role ON memories(role);
+    CREATE INDEX IF NOT EXISTS idx_memories_hash ON memories(content_hash);
     CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
     CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
     CREATE INDEX IF NOT EXISTS idx_entities_parent ON entities(parent_id);
@@ -113,9 +121,20 @@ export function resetDbInstance(): void {
 }
 
 export function getDatabase(dbPath: string = './memories/memory.db'): Database.Database {
+  // DEBUG: getDatabase 调用日志
+  console.log('[ClawMemory] getDatabase() called, path:', dbPath);
+
   if (!dbInstance) {
-    dbInstance = new Database(dbPath);
-    initializeDatabase(dbInstance);
+    console.log('[ClawMemory] Creating new database instance...');
+    try {
+      dbInstance = new Database(dbPath);
+      console.log('[ClawMemory] Database instance created, initializing...');
+      initializeDatabase(dbInstance);
+      console.log('[ClawMemory] Database initialized');
+    } catch (error) {
+      console.error('[ClawMemory] Failed to create database:', error);
+      throw error;
+    }
   }
   return dbInstance;
 }
