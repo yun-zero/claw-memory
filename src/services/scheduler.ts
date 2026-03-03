@@ -65,8 +65,27 @@ export class Scheduler {
    * @param config - Optional configuration (uses DEFAULT_CONFIG if not provided)
    */
   constructor(db: Database.Database, config?: Partial<SchedulerConfig>) {
+    // 合并环境变量配置
+    const envConfig: Partial<SchedulerConfig> = {};
+
+    if (process.env.SCHEDULER_DEDUPE_TIME) {
+      envConfig.deduplicateTime = process.env.SCHEDULER_DEDUPE_TIME;
+    }
+    if (process.env.SCHEDULER_DAILY_TIME) {
+      envConfig.dailyTime = process.env.SCHEDULER_DAILY_TIME;
+    }
+    if (process.env.SCHEDULER_WEEKLY_TIME) {
+      envConfig.weeklyTime = process.env.SCHEDULER_WEEKLY_TIME;
+    }
+    if (process.env.SCHEDULER_MONTHLY_TIME) {
+      envConfig.monthlyTime = process.env.SCHEDULER_MONTHLY_TIME;
+    }
+    if (process.env.SCHEDULER_ENABLED !== undefined) {
+      envConfig.enabled = process.env.SCHEDULER_ENABLED !== 'false';
+    }
+
     this.db = db;
-    this.config = { ...DEFAULT_CONFIG, ...config };
+    this.config = { ...DEFAULT_CONFIG, ...envConfig, ...config };
     this.isRunning = false;
     this.taskQueue = [];
     this.tasks = new Map();
