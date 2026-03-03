@@ -28,12 +28,18 @@ program
   .description('Start MCP server')
   .option('-p, --port <port>', 'Server port', '18790')
   .option('-d, --data-dir <dir>', 'Data directory', './memories')
+  .option('-s, --scheduler-disabled', 'Disable scheduler', false)
   .action(async (options) => {
     const db = getDatabase(`${options.dataDir}/memory.db`);
     const memoryService = new MemoryService(db, options.dataDir);
 
-    const scheduler = new Scheduler(db);
-    scheduler.start();
+    const scheduler = new Scheduler(db, {
+      enabled: !options.schedulerDisabled
+    });
+
+    if (!options.schedulerDisabled) {
+      scheduler.start();
+    }
 
     const server = new Server(
       {
