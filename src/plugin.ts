@@ -23,7 +23,7 @@ export function createPlugin(config?: any): OpenClawPlugin {
 
   return {
     name: 'claw-memory',
-    version: '0.1.4',
+    version: '0.1.6',
 
     async register(api: OpenClawPluginContext) {
       if (!pluginConfig.enabled) {
@@ -51,9 +51,10 @@ export function createPlugin(config?: any): OpenClawPlugin {
       api.registerHook('agent:bootstrap', async (event: any) => {
         try {
           const summary = await handleAgentBootstrap(db);
-          if (summary) {
-            event.context = event.context || '';
-            event.context += '\n\n' + summary;
+          if (summary && event.context) {
+            const ctx = event.context as Record<string, unknown>;
+            ctx.context = (ctx.context as string) || '';
+            ctx.context += '\n\n' + summary;
           }
         } catch (error) {
           console.error('[ClawMemory] Failed to inject summary:', error);

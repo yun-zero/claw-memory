@@ -3,53 +3,34 @@ import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import * as fs from 'fs';
 import { homedir } from 'os';
-
-interface MessageEvent {
-  message: {
-    role: 'user' | 'assistant';
-    content: string;
-  };
-  session: {
-    id: string;
-    key: string;
-  };
-  conversation?: Array<{
-    role: 'user' | 'assistant';
-    content: string;
-  }>;
-}
+import type { InternalHookEvent } from '../types.js';
 
 export async function handleMessageSent(
-  event: MessageEvent,
+  event: InternalHookEvent,
   db: Database,
   dataDir: string
 ): Promise<void> {
-  // 只处理 assistant 消息（AI 回复后保存）
-  if (event.message.role !== 'assistant') {
+  // 确保 context 存在
+  if (!event.context || typeof event.context !== 'object') {
     return;
   }
 
-  // 从 conversation 中获取最后一条 user 消息
-  let userMessage = '';
-  if (event.conversation && event.conversation.length > 0) {
-    // 找到最后一个 user 消息
-    for (let i = event.conversation.length - 1; i >= 0; i--) {
-      if (event.conversation[i].role === 'user') {
-        userMessage = event.conversation[i].content;
-        break;
-      }
-    }
-  }
+  const ctx = event.context as Record<string, unknown>;
 
-  const assistantMessage = event.message.content;
-
-  if (!userMessage || !assistantMessage) {
-    console.log('[ClawMemory] Skipping - no valid Q&A pair');
+  // 只处理成功发送的消息
+  if (ctx.success !== true) {
     return;
   }
 
-  // 构建 Q&A
-  const qaContent = `Q: ${userMessage}\n\nA: ${assistantMessage}`;
+  const assistantMessage = ctx.content as string;
+
+  if (!assistantMessage) {
+    console.log('[ClawMemory] Skipping - no message content');
+    return;
+  }
+
+  // 构建 Q&A（简化版，只保存AI回复）
+  const qaContent = `A: ${assistantMessage}`;
 
   // 解析 dataDir 中的 ~
   const resolvedDataDir = dataDir.replace(/^~/, homedir());

@@ -5,6 +5,16 @@
 
 export type InternalHookHandler = (event: any) => Promise<void> | void;
 
+// OpenClaw InternalHookEvent 结构
+export interface InternalHookEvent {
+  type?: string;
+  action?: string;
+  sessionKey?: string;
+  context?: Record<string, unknown>;
+  timestamp?: Date;
+  messages?: string[];
+}
+
 export interface IntegratedSummary {
   active_areas: string[];
   key_topics: string[];
