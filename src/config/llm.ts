@@ -10,6 +10,13 @@ export interface LLMConfig {
   model: string;
 }
 
+// Default configuration map for LLM providers
+const LLM_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
+  anthropic: { baseUrl: 'https://api.anthropic.com', model: 'claude-3-haiku-20240307' },
+  openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  'openai-compatible': { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' }
+};
+
 export function getLLMConfig(): LLMConfig {
   const format = (process.env.LLM_FORMAT as LLMConfig['format']) || 'openai';
   const baseUrl = process.env.LLM_BASE_URL || getDefaultBaseUrl(format);
@@ -24,25 +31,11 @@ export function getLLMConfig(): LLMConfig {
 }
 
 function getDefaultBaseUrl(format: LLMConfig['format']): string {
-  switch (format) {
-    case 'anthropic':
-      return 'https://api.anthropic.com';
-    case 'openai':
-    case 'openai-compatible':
-    default:
-      return 'https://api.openai.com/v1';
-  }
+  return LLM_DEFAULTS[format]?.baseUrl ?? LLM_DEFAULTS.openai.baseUrl;
 }
 
 function getDefaultModel(format: LLMConfig['format']): string {
-  switch (format) {
-    case 'anthropic':
-      return 'claude-3-haiku-20240307';
-    case 'openai':
-    case 'openai-compatible':
-    default:
-      return 'gpt-4o-mini';
-  }
+  return LLM_DEFAULTS[format]?.model ?? LLM_DEFAULTS.openai.model;
 }
 
 export async function generateSummaryWithLLM(
@@ -105,32 +98,28 @@ async function generateWithOpenAI(
   config: LLMConfig,
   errorPrefix: string = 'OpenAI'
 ): Promise<string> {
-  try {
-    const response = await fetch(`${config.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`
-      },
-      body: JSON.stringify({
-        model: config.model,
-        max_tokens: 1024,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ]
-      })
-    });
+  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${config.apiKey}`
+    },
+    body: JSON.stringify({
+      model: config.model,
+      max_tokens: 1024,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ]
+    })
+  });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`${errorPrefix} API error: ${error}`);
-    }
-
-    const data = await response.json() as { choices: { message: { content: string } }[] };
-    return data.choices[0]?.message?.content || '总结生成失败';
-  } catch (err) {
-    throw new Error(`${errorPrefix} API error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`${errorPrefix} API error: ${error}`);
   }
+
+  const data = await response.json() as { choices: { message: { content: string } }[] };
+  return data.choices[0]?.message?.content || '总结生成失败';
 }
 
