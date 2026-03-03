@@ -36,11 +36,46 @@ export class TagService {
   }
 
   /**
-   * Get all tags as a hierarchical tree structure
+   * Get all tags as a hierarchical tree structure with statistics
    */
-  getTagTree(): TagNode[] {
-    const tags = this.entityRepo.findByType('tag');
-    return this.buildTagTree(tags);
+  async getTagTree(): Promise<{ totalTags: number; maxLevel: number; tree: TagNode[] }> {
+    // 1. Get all tags with memory count
+    const allTags = this.db.prepare(`
+      SELECT e.*, COUNT(me.memory_id) as memory_count
+      FROM entities e
+      LEFT JOIN memory_entities me ON e.id = me.entity_id
+      WHERE e.type = 'tag'
+      GROUP BY e.id
+    `).all() as any[];
+
+    // 2. Build mapping: tagId -> TagNode
+    const tagMap = new Map<string, TagNode>();
+    for (const tag of allTags) {
+      tagMap.set(tag.id, {
+        name: tag.name,
+        level: tag.level,
+        memoryCount: tag.memory_count || 0,
+        usageCount: tag.memory_count || 0,
+        children: []
+      });
+    }
+
+    // 3. Build tree structure via parent_id
+    const rootTags: TagNode[] = [];
+    let maxLevel = 0;
+
+    for (const tag of allTags) {
+      const node = tagMap.get(tag.id)!;
+      maxLevel = Math.max(maxLevel, tag.level || 0);
+
+      if (tag.parent_id && tagMap.has(tag.parent_id)) {
+        tagMap.get(tag.parent_id)!.children.push(node);
+      } else {
+        rootTags.push(node);
+      }
+    }
+
+    return { totalTags: allTags.length, maxLevel, tree: rootTags };
   }
 
   /**
