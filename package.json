@@ -1,6 +1,6 @@
 {
   "name": "@yun-zero/claw-memory",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "OpenClaw 记忆插件 - 自动保存对话，智能注入上下文",
   "main": "dist/plugin.js",
   "type": "module",

@@ -3,6 +3,8 @@
  * Lightweight AI memory system for OpenClaw and Claude Code
  */
 
+export type InternalHookHandler = (event: any) => Promise<void> | void;
+
 export interface IntegratedSummary {
   active_areas: string[];
   key_topics: string[];
