@@ -4,32 +4,45 @@
  */
 
 export interface LLMConfig {
-  provider: 'openai' | 'anthropic';
+  format: 'openai' | 'anthropic' | 'openai-compatible';
+  baseUrl: string;
   apiKey: string;
-  model?: string;
+  model: string;
 }
 
 export function getLLMConfig(): LLMConfig {
-  const openaiKey = process.env.OPENAI_API_KEY;
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const format = (process.env.LLM_FORMAT as LLMConfig['format']) || 'openai';
+  const baseUrl = process.env.LLM_BASE_URL || getDefaultBaseUrl(format);
+  const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || '';
+  const model = process.env.LLM_MODEL || getDefaultModel(format);
 
-  if (anthropicKey) {
-    return {
-      provider: 'anthropic',
-      apiKey: anthropicKey,
-      model: process.env.LLM_MODEL || 'claude-3-haiku-20240307'
-    };
+  if (!apiKey) {
+    throw new Error('No LLM API key configured. Set LLM_API_KEY environment variable.');
   }
 
-  if (openaiKey) {
-    return {
-      provider: 'openai',
-      apiKey: openaiKey,
-      model: process.env.LLM_MODEL || 'gpt-4o-mini'
-    };
-  }
+  return { format, baseUrl, apiKey, model };
+}
 
-  throw new Error('No LLM API key configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variable.');
+function getDefaultBaseUrl(format: LLMConfig['format']): string {
+  switch (format) {
+    case 'anthropic':
+      return 'https://api.anthropic.com';
+    case 'openai':
+    case 'openai-compatible':
+    default:
+      return 'https://api.openai.com/v1';
+  }
+}
+
+function getDefaultModel(format: LLMConfig['format']): string {
+  switch (format) {
+    case 'anthropic':
+      return 'claude-3-haiku-20240307';
+    case 'openai':
+    case 'openai-compatible':
+    default:
+      return 'gpt-4o-mini';
+  }
 }
 
 export async function generateSummaryWithLLM(
@@ -48,7 +61,7 @@ export async function generateSummaryWithLLM(
 
 请用中文输出总结，保持简洁但有信息量。`;
 
-  if (llmConfig.provider === 'anthropic') {
+  if (llmConfig.format === 'anthropic') {
     return generateWithAnthropic(systemPrompt, report, llmConfig);
   } else {
     return generateWithOpenAI(systemPrompt, report, llmConfig);
