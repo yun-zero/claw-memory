@@ -44,7 +44,9 @@ export async function getMemoryIndex(db: Database.Database, options: MemoryIndex
 
   // 获取缓存的整体摘要（从最新的 memory）
   const memoryRepo = new MemoryRepository(db);
-  const integratedSummary = memoryRepo.getLatestIntegratedSummary();
+  const rawSummary = memoryRepo.getLatestIntegratedSummary();
+  // Convert null to undefined to match the interface type
+  const integratedSummary = rawSummary === null ? undefined : rawSummary;
 
   return {
     period: { start: startDate, end: endDate },
