@@ -96,8 +96,11 @@ export class MemoryRepository {
   }
 
   getLatestIntegratedSummary(): IntegratedSummary | null {
-    const memories = this.findAll(1);
-    if (memories.length === 0) return null;
-    return memories[0].integratedSummary;
+    const row = this.db.prepare(`
+      SELECT integrated_summary FROM memories ORDER BY created_at DESC LIMIT 1
+    `).get() as { integrated_summary: string } | undefined;
+
+    if (!row || !row.integrated_summary) return null;
+    return this.safeParseJSON(row.integrated_summary);
   }
 }

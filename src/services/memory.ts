@@ -45,7 +45,7 @@ export class MemoryService {
     await this.saveContentToFile(contentPath, content);
 
     // 获取已有的整体摘要
-    const existingSummary = await this.getLatestIntegratedSummary();
+    const existingSummary = this.getLatestIntegratedSummary();
 
     // 调用 LLM 提取元数据（传入已有摘要）
     const extracted = content.trim()
