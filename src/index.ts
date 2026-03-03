@@ -15,7 +15,10 @@ import {
   createGetContextTool,
   createGetSummaryTool,
   createListMemoriesTool,
-  createDeleteMemoryTool
+  createDeleteMemoryTool,
+  createGetEntityRelationsTool,
+  createQueryEntityGraphTool,
+  createGetRelationStatsTool
 } from './mcp/tools.js';
 
 const program = new Command();
@@ -63,7 +66,10 @@ program
           createGetContextTool(memoryService),
           createGetSummaryTool(memoryService),
           createListMemoriesTool(memoryService),
-          createDeleteMemoryTool(memoryService)
+          createDeleteMemoryTool(memoryService),
+          createGetEntityRelationsTool(db),
+          createQueryEntityGraphTool(db),
+          createGetRelationStatsTool(db)
         ] as any
       };
     });
@@ -77,7 +83,10 @@ program
         get_context: createGetContextTool(memoryService),
         get_summary: createGetSummaryTool(memoryService),
         list_memories: createListMemoriesTool(memoryService),
-        delete_memory: createDeleteMemoryTool(memoryService)
+        delete_memory: createDeleteMemoryTool(memoryService),
+        get_entity_relations: createGetEntityRelationsTool(db),
+        query_entity_graph: createQueryEntityGraphTool(db),
+        get_relation_stats: createGetRelationStatsTool(db)
       };
 
       const tool = tools[name as keyof typeof tools];
