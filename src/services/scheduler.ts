@@ -5,6 +5,7 @@
 
 import Database from 'better-sqlite3';
 import cron, { ScheduledTask } from 'node-cron';
+import { generateSummaryWithLLM } from '../config/llm.js';
 
 /**
  * Scheduler configuration interface
@@ -230,7 +231,7 @@ export class Scheduler {
         await this.deduplicate();
         break;
       case 'daily':
-        this.dailySummary();
+        await this.dailySummary();
         break;
       case 'weekly':
         this.weeklySummary();
@@ -303,14 +304,65 @@ export class Scheduler {
   }
 
   /**
-   * Executes daily summary task (placeholder - logs for now)
+   * Executes daily summary task - generates summary for previous day's memories
    */
-  private dailySummary(): void {
-    console.log('[Scheduler] Running daily summary task...');
-    // TODO: Implement daily summary logic
-    // - Query memories from the past day
-    // - Generate summary using LLM
-    // - Update time_buckets table
+  private async dailySummary(): Promise<void> {
+    console.log('[Scheduler] Running daily summary...');
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dateStr = yesterday.toISOString().split('T')[0];
+
+    // 检查是否已有总结
+    const existing = this.db.prepare(`
+      SELECT summary FROM time_buckets WHERE date = ?
+    `).get(dateStr) as { summary?: string } | undefined;
+
+    if (existing?.summary) {
+      console.log(`[Scheduler] Daily summary for ${dateStr} already exists`);
+      return;
+    }
+
+    // 获取当天的记忆
+    const memories = this.db.prepare(`
+      SELECT id, content_path FROM memories
+      WHERE date(created_at) = date(?)
+    `).all(dateStr) as any[];
+
+    if (memories.length === 0) {
+      console.log(`[Scheduler] No memories for ${dateStr}, skipping`);
+      return;
+    }
+
+    // 读取记忆内容
+    const fs = await import('fs/promises');
+    const contents: string[] = [];
+
+    for (const mem of memories) {
+      try {
+        const content = await fs.readFile(mem.content_path, 'utf-8');
+        contents.push(content.slice(0, 1000));
+      } catch (e) {
+        console.error(`[Scheduler] Failed to read ${mem.content_path}`);
+      }
+    }
+
+    // 构建报告字符串并调用 LLM 生成总结
+    const reportString = `日期: ${dateStr}\n记忆数量: ${memories.length}\n\n记忆内容:\n${contents.join('\n---\n')}`;
+
+    try {
+      const summary = await generateSummaryWithLLM(reportString);
+
+      // 保存到 time_buckets
+      this.db.prepare(`
+        INSERT OR REPLACE INTO time_buckets (date, summary, summary_generated_at, memory_count)
+        VALUES (?, ?, datetime('now'), ?)
+      `).run(dateStr, summary, memories.length);
+
+      console.log(`[Scheduler] Daily summary generated for ${dateStr}`);
+    } catch (error) {
+      console.error('[Scheduler] Failed to generate daily summary:', error);
+    }
   }
 
   /**
