@@ -25,11 +25,11 @@ function expandTilde(filepath: string): string {
 export function getConfig(config?: any): PluginConfig {
   const defaultConfig: PluginConfig = {
     enabled: true,
-    autoSave: true,
+    autoSave: false,  // 默认禁用，避免问题
     saveMode: 'qa',
     dataDir: expandTilde('~/.openclaw/claw-memory'),
     scheduler: {
-      enabled: true,
+      enabled: false,  // 默认禁用，避免问题
       deduplicateTime: '01:00',
       dailyTime: '02:00',
       weeklyTime: '03:00',
