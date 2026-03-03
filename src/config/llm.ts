@@ -68,7 +68,11 @@ async function generateWithAnthropic(
   userPrompt: string,
   config: LLMConfig
 ): Promise<string> {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  // Ensure v1 path for Anthropic API
+  const baseUrl = config.baseUrl.includes('/anthropic') && !config.baseUrl.includes('/v1')
+    ? `${config.baseUrl}/v1`
+    : config.baseUrl;
+  const response = await fetch(`${baseUrl}/messages`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

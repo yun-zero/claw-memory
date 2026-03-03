@@ -5,3 +5,4 @@ dist/
 memories/
 *.db
 .DS_Store
+test/data/
