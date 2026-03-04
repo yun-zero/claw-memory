@@ -54,6 +54,11 @@ export async function generateEmbedding(
 ): Promise<number[]> {
   const embeddingConfig = getEmbeddingConfig(config);
 
+  console.log('[Embedding] Request:', {
+    url: `${embeddingConfig.baseUrl}/embeddings`,
+    model: embeddingConfig.model
+  });
+
   const response = await fetch(`${embeddingConfig.baseUrl}/embeddings`, {
     method: 'POST',
     headers: {

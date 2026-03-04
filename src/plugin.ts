@@ -65,6 +65,10 @@ const clawMemoryPlugin = {
               apiKey = providerConfig.apiKey;
             }
           }
+          // 如果是引用ID，从环境变量获取实际 key
+          if (!apiKey || apiKey.length < 20) {
+            apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || '';
+          }
           console.log('[ClawMemory] extracted apiKey:', apiKey ? 'has value' : 'empty');
           setLLMConfig({
             baseUrl: providerConfig.baseUrl,
