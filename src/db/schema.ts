@@ -74,7 +74,7 @@ export function initializeDatabase(db: Database.Database): void {
   // 5. 时间桶
   db.exec(`
     CREATE TABLE IF NOT EXISTS time_buckets (
-      date TEXT PRIMARY KEY,
+      date DATE PRIMARY KEY,
       memory_count INTEGER DEFAULT 0,
       summary TEXT,
       summary_generated_at TIMESTAMP,

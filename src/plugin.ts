@@ -7,8 +7,10 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 import { getDatabase } from "./db/schema.js";
 import { EntityRepository } from "./db/entityRepository.js";
+import { MemoryRepository } from "./db/repository.js";
 import { MetadataExtractor } from "./services/metadataExtractor.js";
 import { TagService } from "./services/tagService.js";
+import { getMemoryIndex } from "./services/memoryIndex.js";
 
 // 插件配置
 interface PluginConfig {
@@ -52,12 +54,14 @@ const clawMemoryPlugin = {
     // 初始化数据库
     let db: any;
     let entityRepo: EntityRepository;
+    let memoryRepo: MemoryRepository;
     let metadataExtractor: MetadataExtractor;
     let tagService: TagService;
 
     try {
       db = getDatabase(pluginConfig.dataDir + "/memory.db");
       entityRepo = new EntityRepository(db);
+      memoryRepo = new MemoryRepository(db);
       metadataExtractor = new MetadataExtractor();
       tagService = new TagService(db);
       console.log("[ClawMemory] Database and services initialized");
@@ -158,21 +162,39 @@ const clawMemoryPlugin = {
       if (!db) return;
 
       try {
-        const memories = db.prepare(`
-          SELECT id, summary, created_at
-          FROM memories
-          ORDER BY created_at DESC
-          LIMIT ?
-        `).all(pluginConfig.maxContextMemories) as any[];
-
-        if (memories.length === 0) return;
-
-        const contextParts = memories.map((m: any) => {
-          const date = new Date(m.created_at).toLocaleDateString();
-          return `[${date}] ${m.summary || "(无摘要)"}`;
+        // 使用 getMemoryIndex 获取结构化索引
+        const index = await getMemoryIndex(db, {
+          period: 'week',
+          includeRecent: true,
+          recentLimit: pluginConfig.maxContextMemories,
         });
 
-        const context = `\n\n--- 最近记忆 ---\n${contextParts.join("\n")}\n--- 记忆结束 ---\n`;
+        // 格式化为自然语言
+        const contextParts: string[] = [];
+
+        // 添加活跃领域
+        if (index.activeAreas.tags.length > 0) {
+          const tagNames = index.activeAreas.tags.map(t => t.name).join(', ');
+          contextParts.push(`活跃领域: ${tagNames}`);
+        }
+
+        // 添加最近动态
+        if (index.recentActivity.length > 0) {
+          const recentParts = index.recentActivity.map((a: any) => {
+            return `[${a.date}] ${a.summary}`;
+          });
+          contextParts.push(`\n最近动态:\n${recentParts.join('\n')}`);
+        }
+
+        // 添加待办事项
+        if (index.todos.length > 0) {
+          const todoText = index.todos.map((t: any) => `- ${t.content}`).join('\n');
+          contextParts.push(`\n待办事项:\n${todoText}`);
+        }
+
+        if (contextParts.length === 0) return;
+
+        const context = `\n\n--- 记忆索引 ---\n${contextParts.join('\n')}\n--- 记忆结束 ---\n`;
 
         return { prependContext: context };
       } catch (error) {
@@ -243,12 +265,38 @@ const clawMemoryPlugin = {
             continue;
           }
 
-          // 保存 AI 回复
+          // 获取旧的 integrated_summary（用于增量更新）
+          const oldSummary = memoryRepo.getLatestIntegratedSummary();
+          if (oldSummary) {
+            console.log("[ClawMemory] Found existing summary, will update incrementally");
+          }
+
+          // 调用 LLM 提取元数据并更新概览
+          let integratedSummary: any = null;
+          try {
+            const metadata = await metadataExtractor.extract(content, oldSummary || undefined);
+            integratedSummary = {
+              active_areas: metadata.subjects || [],
+              key_topics: metadata.keywords || [],
+              recent_summary: content.substring(0, 200),
+            };
+            console.log("[ClawMemory] Extracted metadata with incremental update");
+          } catch (err) {
+            console.error("[ClawMemory] Error extracting metadata:", err);
+          }
+
+          // 保存 AI 回复（带 integrated_summary）
           const memoryId = crypto.randomUUID();
           db.prepare(`
-            INSERT INTO memories (id, content_path, summary, role, content_hash, created_at)
-            VALUES (?, ?, ?, 'assistant', ?, datetime('now'))
-          `).run(memoryId, "", content.substring(0, 200), contentHash);
+            INSERT INTO memories (id, content_path, summary, role, content_hash, integrated_summary, created_at)
+            VALUES (?, ?, ?, 'assistant', ?, ?, datetime('now'))
+          `).run(
+            memoryId,
+            "",
+            content.substring(0, 200),
+            contentHash,
+            integratedSummary ? JSON.stringify(integratedSummary) : null
+          );
 
           console.log(`[ClawMemory] Saved AI response: ${content.substring(0, 50)}... (hash: ${contentHash.substring(0, 8)}...)`);
         }
