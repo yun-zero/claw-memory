@@ -46,16 +46,26 @@ const clawMemoryPlugin = {
     try {
       console.log('[ClawMemory] api.config keys:', Object.keys(api.config || {}));
       const modelsConfig = (api.config as any).models;
+      console.log('[ClawMemory] modelsConfig exists:', !!modelsConfig);
       if (modelsConfig?.providers) {
         // 获取默认 provider 的配置
         const providers = modelsConfig.providers;
         const defaultProviderKey = Object.keys(providers)[0];
+        console.log('[ClawMemory] defaultProviderKey:', defaultProviderKey);
         const providerConfig = providers[defaultProviderKey];
+        console.log('[ClawMemory] providerConfig.apiKey:', providerConfig?.apiKey, typeof providerConfig?.apiKey);
         if (providerConfig) {
-          // 转换为字符串
-          const apiKey = typeof providerConfig.apiKey === 'object'
-            ? (providerConfig.apiKey as any).value || ''
-            : providerConfig.apiKey || '';
+          // Secret 类型可能是 { value: string } 或直接是 string
+          let apiKey = '';
+          if (providerConfig.apiKey) {
+            if (typeof providerConfig.apiKey === 'object') {
+              // Secret 类型: { value: string } 或 { __secret: string }
+              apiKey = (providerConfig.apiKey as any).value || (providerConfig.apiKey as any).__secret || '';
+            } else {
+              apiKey = providerConfig.apiKey;
+            }
+          }
+          console.log('[ClawMemory] extracted apiKey:', apiKey ? 'has value' : 'empty');
           setLLMConfig({
             baseUrl: providerConfig.baseUrl,
             apiKey: apiKey,
