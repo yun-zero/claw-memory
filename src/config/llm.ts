@@ -133,3 +133,13 @@ async function generateWithOpenAI(
   return data.choices[0]?.message?.content || '总结生成失败';
 }
 
+export interface EmbeddingConfig {
+  model: string;
+}
+
+export function getEmbeddingConfig(): EmbeddingConfig {
+  return {
+    model: process.env.EMBEDDING_MODEL || 'text-embedding-3-small',
+  };
+}
+
