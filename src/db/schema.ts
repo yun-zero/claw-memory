@@ -22,10 +22,6 @@ export function initializeDatabase(db: Database.Database): void {
     )
   `);
 
-  // 添加 role 和 content_hash 列（如果不存在）
-  db.exec(`ALTER TABLE memories ADD COLUMN role TEXT DEFAULT 'user'`);
-  db.exec(`ALTER TABLE memories ADD COLUMN content_hash TEXT`);
-
   // 2. 实体表
   db.exec(`
     CREATE TABLE IF NOT EXISTS entities (

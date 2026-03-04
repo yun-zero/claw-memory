@@ -46,8 +46,8 @@ export async function handleMessageSent(
   // 异步写入文件
   await fs.promises.writeFile(contentPath, qaContent, 'utf-8');
 
-  // 提取摘要（取前200字符）
-  const summary = assistantMessage.substring(0, 200);
+  // 提取摘要（取前20000字符）
+  const summary = assistantMessage.substring(0, 20000);
 
   // 插入数据库
   db.prepare(`

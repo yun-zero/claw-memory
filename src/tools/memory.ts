@@ -47,7 +47,7 @@ export function registerMemoryTools(
       `).run(
         memoryId,
         contentPath,
-        metadata.summary || content.substring(0, 200),
+        metadata.summary || content.substring(0, 20000),
         metadata.importance || 0.5
       );
 

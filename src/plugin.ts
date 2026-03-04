@@ -11,6 +11,8 @@ import { MemoryRepository } from "./db/repository.js";
 import { MetadataExtractor } from "./services/metadataExtractor.js";
 import { TagService } from "./services/tagService.js";
 import { getMemoryIndex } from "./services/memoryIndex.js";
+import { generateEmbedding, generateEmbeddings } from "./services/embedding.js";
+import { hybridSearch } from "./services/semanticSearch.js";
 
 // 插件配置
 interface PluginConfig {
@@ -93,29 +95,31 @@ const clawMemoryPlugin = {
         const query = params.query as string;
         const limit = (params.limit as number) || 10;
 
+        console.log(`[ClawMemory] Search query: "${query}"`);
+
         if (!db) {
           return jsonResult({ text: "Database not initialized" });
         }
 
         try {
-          const memories = db.prepare(`
-            SELECT id, summary, role, created_at
-            FROM memories
-            WHERE summary LIKE ?
-            ORDER BY created_at DESC
-            LIMIT ?
-          `).all(`%${query}%`, limit) as any[];
+          // 使用混合搜索
+          const results = await hybridSearch(query, limit);
 
-          if (memories.length === 0) {
+          console.log(`[ClawMemory] Search found ${results.length} results for query: "${query}"`);
+
+          if (results.length === 0) {
             return jsonResult({ text: "No memories found matching the query." });
           }
 
-          const results = memories.map((m: any) => {
-            const date = new Date(m.created_at).toLocaleDateString();
-            return `[${date}] [${m.role}] ${m.summary || "(无摘要)"}`;
+          // 修改返回格式，包含匹配类型和相关性得分
+          const resultsText = results.map((r: any) => {
+            const date = new Date(r.created_at).toLocaleDateString();
+            const score = (r.relevanceScore * 100).toFixed(1);
+            const matchType = r.matchType || 'unknown';
+            return `[${date}] [${r.role}] [${matchType}] (${score}%) ${r.summary || "(无摘要)"}`;
           }).join("\n\n");
 
-          return jsonResult({ text: `Found ${memories.length} memories:\n\n${results}` });
+          return jsonResult({ text: `Found ${results.length} memories:\n\n${resultsText}` });
         } catch (error) {
           return jsonResult({ text: `Error searching memories: ${error}` });
         }
@@ -212,10 +216,12 @@ const clawMemoryPlugin = {
 
         // 1. 保存记忆
         const memoryId = crypto.randomUUID();
+        // 简单估算 token 数（中文字符约 1.5 token，英文约 0.25 token）
+        const userTokenCount = Math.ceil(content.length / 2);
         db.prepare(`
-          INSERT INTO memories (id, content_path, summary, role, created_at)
-          VALUES (?, ?, ?, 'user', datetime('now'))
-        `).run(memoryId, "", content.substring(0, 200));
+          INSERT INTO memories (id, content_path, summary, role, token_count, created_at)
+          VALUES (?, ?, ?, 'user', ?, datetime('now'))
+        `).run(memoryId, "", content.substring(0, 20000), userTokenCount);
 
         console.log("[ClawMemory] Memory saved:", memoryId);
 
@@ -228,18 +234,20 @@ const clawMemoryPlugin = {
             subjects: metadata.subjects
           }));
 
-          // 3. 保存实体并建立关联
+          // 3. 保存实体并建立关联（使用批量 embedding 生成）
+          const entitiesToEmbed: { name: string; id: string; type: string }[] = [];
+
           // 保存标签
           for (const tagName of metadata.tags) {
             let entity = entityRepo.findByName(tagName);
             if (!entity) {
               entity = entityRepo.create({ name: tagName, type: "tag", level: 1 });
             }
-            // 建立关联
             db.prepare(`
               INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, relevance, source)
               VALUES (?, ?, ?, 'auto')
             `).run(memoryId, entity.id, 1.0);
+            if (entity?.id) entitiesToEmbed.push({ name: entity.name, id: entity.id, type: 'tag' });
           }
 
           // 保存关键词
@@ -252,6 +260,7 @@ const clawMemoryPlugin = {
               INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, relevance, source)
               VALUES (?, ?, ?, 'auto')
             `).run(memoryId, entity.id, 0.8);
+            if (entity?.id) entitiesToEmbed.push({ name: entity.name, id: entity.id, type: 'keyword' });
           }
 
           // 保存主题
@@ -264,6 +273,24 @@ const clawMemoryPlugin = {
               INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, relevance, source)
               VALUES (?, ?, ?, 'auto')
             `).run(memoryId, entity.id, 0.9);
+            if (entity?.id) entitiesToEmbed.push({ name: entity.name, id: entity.id, type: 'subject' });
+          }
+
+          // 批量生成 embedding
+          if (entitiesToEmbed.length > 0) {
+            try {
+              const names = entitiesToEmbed.map(e => e.name);
+              const embeddings = await generateEmbeddings(names);
+              const updateStmt = db.prepare(`UPDATE entities SET embedding = ? WHERE id = ?`);
+              for (let i = 0; i < entitiesToEmbed.length; i++) {
+                if (embeddings[i]) {
+                  updateStmt.run(JSON.stringify(embeddings[i]), entitiesToEmbed[i].id);
+                }
+              }
+              console.log(`[ClawMemory] Batch generated ${embeddings.length} embeddings`);
+            } catch (err) {
+              console.error(`[ClawMemory] Failed to batch generate embeddings:`, err);
+            }
           }
 
           console.log("[ClawMemory] Entities saved");
@@ -280,9 +307,36 @@ const clawMemoryPlugin = {
     api.on("before_agent_start", async (event: any) => {
       console.log("[ClawMemory] before_agent_start hook triggered!");
 
-      if (!db) return;
+      if (!db) {
+        console.log("[ClawMemory] No database, returning");
+        return;
+      }
 
       try {
+        // 检查并生成缺失的 embedding
+        console.log("[ClawMemory] Checking for entities without embedding...");
+        const entitiesWithoutEmbedding = db.prepare(`
+          SELECT id, name, type FROM entities WHERE embedding IS NULL LIMIT 10
+        `).all() as { id: string; name: string; type: string }[];
+
+        if (entitiesWithoutEmbedding.length > 0) {
+          console.log(`[ClawMemory] Found ${entitiesWithoutEmbedding.length} entities without embedding, batch generating...`);
+          try {
+            const names = entitiesWithoutEmbedding.map(e => e.name);
+            const embeddings = await generateEmbeddings(names);
+            const updateStmt = db.prepare(`UPDATE entities SET embedding = ? WHERE id = ?`);
+            for (let i = 0; i < entitiesWithoutEmbedding.length; i++) {
+              if (embeddings[i]) {
+                updateStmt.run(JSON.stringify(embeddings[i]), entitiesWithoutEmbedding[i].id);
+              }
+            }
+            console.log(`[ClawMemory] ✓ Batch generated ${embeddings.length} embeddings`);
+          } catch (err) {
+            console.error(`[ClawMemory] ✗ Failed to batch generate embeddings:`, err);
+          }
+        } else {
+          console.log("[ClawMemory] All entities have embeddings");
+        }
         // 使用 getMemoryIndex 获取结构化索引
         const index = await getMemoryIndex(db, {
           period: 'week',
@@ -313,9 +367,32 @@ const clawMemoryPlugin = {
           contextParts.push(`\n待办事项:\n${todoText}`);
         }
 
-        if (contextParts.length === 0) return;
+        if (contextParts.length === 0) {
+          console.log("[ClawMemory] No context parts, returning undefined");
+          return;
+        }
 
-        const context = `\n\n--- 记忆索引 ---\n${contextParts.join('\n')}\n--- 记忆结束 ---\n`;
+        // 构建工具使用说明 - 更强调必须使用工具并正确解析结果
+        const toolsHint = `
+【重要 - 必须执行】用户询问过去的对话内容时，你必须使用 clawmemory_search 工具搜索记忆！不要假设没有记录！
+
+搜索示例：
+- 用户问"昨天聊了什么" → 调用 clawmemory_search(query="昨天")
+- 用户问"股票" → 调用 clawmemory_search(query="股票")
+- 用户问"A股" → 调用 clawmemory_search(query="A股")
+
+当前已知用户关注：${index.activeAreas.tags.slice(0, 5).map((t: any) => t.name).join('、')} 等。
+
+【关键】搜索工具返回格式说明：
+- 结果在 tool result 的 content[0].text 中
+- 如果返回 "Found X memories:" 表示找到了 X 条记录
+- 如果返回 "No memories found" 才表示没有记录
+- 【重要】只要搜索结果 > 0，你必须基于这些记忆内容回复用户，不能说"没有记录"！
+
+【警告】如果你不调用搜索工具直接回复"没有记录"，将会丢失重要信息！
+`;
+
+        const context = `${toolsHint}\n\n--- 记忆索引 ---\n${contextParts.join('\n')}\n--- 记忆结束 ---\n`;
 
         return { prependContext: context };
       } catch (error) {
@@ -399,7 +476,7 @@ const clawMemoryPlugin = {
             integratedSummary = {
               active_areas: metadata.subjects || [],
               key_topics: metadata.keywords || [],
-              recent_summary: content.substring(0, 200),
+              recent_summary: content.substring(0, 20000),
             };
             console.log("[ClawMemory] Extracted metadata with incremental update");
           } catch (err) {
@@ -408,13 +485,16 @@ const clawMemoryPlugin = {
 
           // 保存 AI 回复（带 integrated_summary）
           const memoryId = crypto.randomUUID();
+          // 简单估算 token 数
+          const aiTokenCount = Math.ceil(content.length / 2);
           db.prepare(`
-            INSERT INTO memories (id, content_path, summary, role, content_hash, integrated_summary, created_at)
-            VALUES (?, ?, ?, 'assistant', ?, ?, datetime('now'))
+            INSERT INTO memories (id, content_path, summary, role, token_count, content_hash, integrated_summary, created_at)
+            VALUES (?, ?, ?, 'assistant', ?, ?, ?, datetime('now'))
           `).run(
             memoryId,
             "",
-            content.substring(0, 200),
+            content.substring(0, 20000),
+            aiTokenCount,
             contentHash,
             integratedSummary ? JSON.stringify(integratedSummary) : null
           );
