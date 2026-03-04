@@ -44,6 +44,7 @@ const clawMemoryPlugin = {
 
     // 获取 OpenClaw 的 LLM 配置
     try {
+      console.log('[ClawMemory] api.config keys:', Object.keys(api.config || {}));
       const modelsConfig = (api.config as any).models;
       if (modelsConfig?.providers) {
         // 获取默认 provider 的配置
