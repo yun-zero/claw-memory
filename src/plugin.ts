@@ -4,7 +4,7 @@
  */
 
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
+import { emptyPluginConfigSchema, jsonResult } from "openclaw/plugin-sdk";
 import { getDatabase } from "./db/schema.js";
 import { EntityRepository } from "./db/entityRepository.js";
 import { MemoryRepository } from "./db/repository.js";
@@ -68,6 +68,127 @@ const clawMemoryPlugin = {
     } catch (error) {
       console.error("[ClawMemory] Failed to initialize database:", error);
     }
+
+    // 注册工具
+    api.registerTool({
+      name: "clawmemory_search",
+      label: "ClawMemory Search",
+      description: "Search through conversation memories. Use this to recall prior work, decisions, user preferences, or important context from previous conversations.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Search query text"
+          },
+          limit: {
+            type: "number",
+            description: "Maximum number of results",
+            default: 10
+          }
+        },
+        required: ["query"]
+      },
+      execute: async (_toolCallId, params) => {
+        const query = params.query as string;
+        const limit = (params.limit as number) || 10;
+
+        if (!db) {
+          return jsonResult({ text: "Database not initialized" });
+        }
+
+        try {
+          const memories = db.prepare(`
+            SELECT id, summary, role, created_at
+            FROM memories
+            WHERE summary LIKE ?
+            ORDER BY created_at DESC
+            LIMIT ?
+          `).all(`%${query}%`, limit) as any[];
+
+          if (memories.length === 0) {
+            return jsonResult({ text: "No memories found matching the query." });
+          }
+
+          const results = memories.map((m: any) => {
+            const date = new Date(m.created_at).toLocaleDateString();
+            return `[${date}] [${m.role}] ${m.summary || "(无摘要)"}`;
+          }).join("\n\n");
+
+          return jsonResult({ text: `Found ${memories.length} memories:\n\n${results}` });
+        } catch (error) {
+          return jsonResult({ text: `Error searching memories: ${error}` });
+        }
+      }
+    });
+
+    // 注册获取记忆摘要的工具
+    api.registerTool({
+      name: "clawmemory_summary",
+      label: "ClawMemory Summary",
+      description: "Get a summary of memories for a specific time period (day, week, or month). Use this to understand what has been discussed recently.",
+      parameters: {
+        type: "object",
+        properties: {
+          period: {
+            type: "string",
+            enum: ["day", "week", "month"],
+            description: "Time period for the summary"
+          }
+        },
+        required: ["period"]
+      },
+      execute: async (_toolCallId, params) => {
+        const period = params.period as string;
+
+        if (!db) {
+          return jsonResult({ text: "Database not initialized" });
+        }
+
+        try {
+          const today = new Date();
+          let startDate: Date;
+
+          switch (period) {
+            case "day":
+              startDate = today;
+              break;
+            case "week":
+              startDate = new Date(today);
+              startDate.setDate(today.getDate() - today.getDay());
+              break;
+            case "month":
+              startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+              break;
+            default:
+              startDate = today;
+          }
+
+          const startDateStr = startDate.toISOString().split("T")[0];
+
+          const memories = db.prepare(`
+            SELECT summary, role, created_at
+            FROM memories
+            WHERE created_at >= ?
+            ORDER BY created_at DESC
+            LIMIT 20
+          `).all(startDateStr) as any[];
+
+          if (memories.length === 0) {
+            return jsonResult({ text: `No memories found for this ${period}.` });
+          }
+
+          const results = memories.map((m: any) => {
+            const date = new Date(m.created_at).toLocaleDateString();
+            return `[${date}] [${m.role}] ${m.summary || "(无摘要)"}`;
+          }).join("\n");
+
+          return jsonResult({ text: `Memory summary for ${period} (${memories.length} memories):\n\n${results}` });
+        } catch (error) {
+          return jsonResult({ text: `Error getting summary: ${error}` });
+        }
+      }
+    });
 
     // 注册 message_received hook - 捕获原始用户消息并提取元数据
     api.on("message_received", async (event: any) => {
