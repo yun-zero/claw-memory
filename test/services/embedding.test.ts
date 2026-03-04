@@ -8,7 +8,7 @@ import {
 } from '../../src/services/embedding.js';
 
 describe('Embedding Service', () => {
-  let fetchMock: any;
+  let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     fetchMock = vi.fn();
@@ -82,6 +82,34 @@ describe('Embedding Service', () => {
         })
       );
     });
+
+    it('should throw error when API returns error response', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: async () => 'Unauthorized: Invalid API key'
+      });
+
+      vi.stubEnv('LLM_API_KEY', 'invalid-api-key');
+
+      await expect(generateEmbedding('test text')).rejects.toThrow(
+        'Embedding API error: Unauthorized: Invalid API key'
+      );
+    });
+
+    it('should throw error when API returns 500 server error', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: async () => 'Internal Server Error'
+      });
+
+      vi.stubEnv('LLM_API_KEY', 'test-api-key');
+
+      await expect(generateEmbedding('test text')).rejects.toThrow(
+        'Embedding API error: Internal Server Error'
+      );
+    });
   });
 
   describe('generateEmbeddings (batch)', () => {
@@ -105,6 +133,20 @@ describe('Embedding Service', () => {
       const result = await generateEmbeddings(['text1', 'text2']);
 
       expect(result).toEqual(mockEmbeddings);
+    });
+
+    it('should throw error when batch API returns error response', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 429,
+        text: async () => 'Rate limit exceeded'
+      });
+
+      vi.stubEnv('LLM_API_KEY', 'test-api-key');
+
+      await expect(generateEmbeddings(['text1', 'text2'])).rejects.toThrow(
+        'Embedding API error: Rate limit exceeded'
+      );
     });
   });
 
@@ -190,14 +232,12 @@ describe('Embedding Service', () => {
     it('should use environment variables when no config provided', () => {
       vi.stubEnv('LLM_BASE_URL', 'https://custom.api.com');
       vi.stubEnv('LLM_API_KEY', 'env-api-key');
-      vi.stubEnv('LLM_FORMAT', 'openai-compatible');
       vi.stubEnv('EMBEDDING_MODEL', 'custom-embedding-model');
 
       const config = getEmbeddingConfig();
 
       expect(config.baseUrl).toBe('https://custom.api.com');
       expect(config.apiKey).toBe('env-api-key');
-      expect(config.format).toBe('openai-compatible');
       expect(config.model).toBe('custom-embedding-model');
     });
 

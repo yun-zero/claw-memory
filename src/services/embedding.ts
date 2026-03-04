@@ -4,30 +4,25 @@
  */
 
 export interface EmbeddingConfig {
-  format: 'openai' | 'anthropic' | 'openai-compatible';
   baseUrl: string;
   apiKey: string;
   model: string;
-  dimension: number;
 }
 
 const DEFAULT_CONFIG: Partial<EmbeddingConfig> = {
   model: 'text-embedding-3-small',
-  dimension: 1536,
 };
 
 function getEmbeddingConfig(override?: Partial<EmbeddingConfig>): EmbeddingConfig {
-  const format = override?.format || (process.env.LLM_FORMAT as EmbeddingConfig['format']) || 'openai';
   const baseUrl = override?.baseUrl || process.env.LLM_BASE_URL || 'https://api.openai.com/v1';
   const apiKey = override?.apiKey || process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || '';
   const model = override?.model || process.env.EMBEDDING_MODEL || DEFAULT_CONFIG.model!;
-  const dimension = override?.dimension || DEFAULT_CONFIG.dimension!;
 
   if (!apiKey) {
     throw new Error('No API key configured. Set LLM_API_KEY or OPENAI_API_KEY environment variable.');
   }
 
-  return { format, baseUrl, apiKey, model, dimension };
+  return { baseUrl, apiKey, model };
 }
 
 export async function generateEmbedding(
@@ -85,7 +80,7 @@ export async function generateEmbeddings(
   }
 
   const data = await response.json() as {
-    data: { embedding: number[] }[];
+    data: { index: number; embedding: number[] }[];
   };
 
   // Sort by index to ensure correct order
