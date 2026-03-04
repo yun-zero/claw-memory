@@ -3,8 +3,6 @@
  * Generates text embeddings using OpenAI-compatible APIs
  */
 
-import { getLLMConfig } from '../config/llm.js';
-
 export interface EmbeddingConfig {
   baseUrl: string;
   apiKey: string;
@@ -13,25 +11,38 @@ export interface EmbeddingConfig {
 
 const DEFAULT_MODEL = 'text-embedding-v1';
 
+// 存储 OpenClaw 传入的配置
+let _llmConfig: { baseUrl: string; apiKey: string; model?: string } | null = null;
+
+/**
+ * 设置 OpenClaw 的 LLM 配置（由 plugin.ts 调用）
+ */
+export function setLLMConfig(config: { baseUrl: string; apiKey: string; model?: string }): void {
+  _llmConfig = config;
+  console.log('[Embedding] LLM config set:', { baseUrl: config.baseUrl, model: config.model || DEFAULT_MODEL });
+}
+
 function getEmbeddingConfig(override?: Partial<EmbeddingConfig>): EmbeddingConfig {
-  // 使用 OpenClaw 的 LLM 配置
-  const llmConfig = getLLMConfig();
+  // 使用 OpenClaw 传入的配置
+  if (!_llmConfig) {
+    throw new Error('LLM config not set. Please call setLLMConfig() first.');
+  }
 
   // 根据 LLM baseUrl 推断 embedding 端点
   // 火山引擎: /v1/chat/completions -> /v1/embeddings
   // 其他: 直接使用 baseUrl
-  let baseUrl = override?.baseUrl || llmConfig.baseUrl;
+  let baseUrl = override?.baseUrl || _llmConfig.baseUrl;
   if (baseUrl.includes('/chat/')) {
     baseUrl = baseUrl.replace('/chat/completions', '/embeddings');
   } else if (!baseUrl.includes('/embeddings')) {
     baseUrl = baseUrl.replace('/v1', '/v1/embeddings').replace('/v3', '/v3/embeddings');
   }
 
-  const apiKey = override?.apiKey || llmConfig.apiKey;
-  const model = override?.model || DEFAULT_MODEL;
+  const apiKey = override?.apiKey || _llmConfig.apiKey;
+  const model = override?.model || _llmConfig.model || DEFAULT_MODEL;
 
   if (!apiKey) {
-    throw new Error('No API key configured. Please check OpenClaw LLM configuration.');
+    throw new Error('No API key configured.');
   }
 
   return { baseUrl, apiKey, model };

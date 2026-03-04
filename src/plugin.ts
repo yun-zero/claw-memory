@@ -11,7 +11,7 @@ import { MemoryRepository } from "./db/repository.js";
 import { MetadataExtractor } from "./services/metadataExtractor.js";
 import { TagService } from "./services/tagService.js";
 import { getMemoryIndex } from "./services/memoryIndex.js";
-import { generateEmbedding, generateEmbeddings } from "./services/embedding.js";
+import { generateEmbedding, generateEmbeddings, setLLMConfig } from "./services/embedding.js";
 import { hybridSearch } from "./services/semanticSearch.js";
 
 // 插件配置
@@ -41,6 +41,30 @@ const clawMemoryPlugin = {
 
   register(api: OpenClawPluginApi) {
     console.log("[ClawMemory] Plugin registered successfully");
+
+    // 获取 OpenClaw 的 LLM 配置
+    try {
+      const modelsConfig = (api.config as any).models;
+      if (modelsConfig?.providers) {
+        // 获取默认 provider 的配置
+        const providers = modelsConfig.providers;
+        const defaultProviderKey = Object.keys(providers)[0];
+        const providerConfig = providers[defaultProviderKey];
+        if (providerConfig) {
+          // 转换为字符串
+          const apiKey = typeof providerConfig.apiKey === 'object'
+            ? (providerConfig.apiKey as any).value || ''
+            : providerConfig.apiKey || '';
+          setLLMConfig({
+            baseUrl: providerConfig.baseUrl,
+            apiKey: apiKey,
+            model: providerConfig.models?.[0]?.id
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[ClawMemory] Failed to get LLM config from OpenClaw:', err);
+    }
 
     // 获取配置
     const dataDir = api.resolvePath("~/.openclaw/claw-memory");
