@@ -83,7 +83,8 @@ export class MemoryRepository {
       lastAccessedAt: row.last_accessed_at ? new Date(row.last_accessed_at) : null,
       isArchived: Boolean(row.is_archived),
       isDuplicate: Boolean(row.is_duplicate),
-      duplicateOf: row.duplicate_of
+      duplicateOf: row.duplicate_of,
+      role: row.role || 'user'
     };
   }
 

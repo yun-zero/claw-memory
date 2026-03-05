@@ -173,8 +173,18 @@ export function getDatabase(dbPath: string = './memories/memory.db'): Database.D
       const Database = loadDatabase();
       dbInstance = new Database(dbPath);
       console.log('[ClawMemory] Database instance created, initializing...');
+      
+      // 启用 WAL 模式（提升并发性能）
+      dbInstance.pragma('journal_mode = WAL');
+      // 设置缓存大小（MB）
+      dbInstance.pragma('cache_size = -2000'); // 2MB
+      // 启用外键约束
+      dbInstance.pragma('foreign_keys = ON');
+      // 同步模式（标准）
+      dbInstance.pragma('synchronous = NORMAL');
+      
       initializeDatabase(dbInstance);
-      console.log('[ClawMemory] Database initialized');
+      console.log('[ClawMemory] Database initialized with optimizations');
     } catch (error) {
       console.error('[ClawMemory] Failed to create database:', error);
       throw error;

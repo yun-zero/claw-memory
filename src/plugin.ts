@@ -13,6 +13,11 @@ import { TagService } from "./services/tagService.js";
 import { getMemoryIndex } from "./services/memoryIndex.js";
 import { setLLMConfig } from "./config/llm.js";
 import { EntityGraphService } from "./services/entityGraphService.js";
+import { MEMORY_CONFIG } from "./constants.js";
+import { smartTruncate, generateContentPath, writeContentToFile, estimateTokenCount } from "./utils/helpers.js";
+import { Scheduler } from "./services/scheduler.js";
+import { initTodos, createTodo, listTodos, deleteTodo } from "./hooks/todos.js";
+import { EntityRelationBuilder } from "./services/entityRelation.js";
 
 // 插件配置
 interface PluginConfig {
@@ -128,6 +133,16 @@ const clawMemoryPlugin = {
       memoryRepo = new MemoryRepository(db);
       metadataExtractor = new MetadataExtractor();
       tagService = new TagService(db);
+      
+      // 初始化待办事项仓库
+      initTodos(db);
+      console.log("[ClawMemory] Todo repository initialized");
+      
+      // 初始化并启动 Scheduler
+      const scheduler = new Scheduler(db);
+      scheduler.start();
+      console.log("[ClawMemory] Scheduler started");
+      
       console.log("[ClawMemory] Database and services initialized");
     } catch (error) {
       console.error("[ClawMemory] Failed to initialize database:", error);
@@ -268,6 +283,129 @@ const clawMemoryPlugin = {
       }
     });
 
+    // 注册待办事项工具 - 创建待办
+    api.registerTool({
+      name: "clawmemory_create_todo",
+      label: "ClawMemory Create Todo",
+      description: "Create a new todo item",
+      parameters: {
+        type: "object",
+        properties: {
+          content: {
+            type: "string",
+            description: "Todo content"
+          },
+          period: {
+            type: "string",
+            enum: ["day", "week", "month"],
+            description: "Todo period",
+            default: "day"
+          }
+        },
+        required: ["content"]
+      },
+      execute: async (_toolCallId, params) => {
+        if (!db) {
+          return jsonResult({ text: "Database not initialized" });
+        }
+
+        try {
+          const content = params.content as string;
+          const period = (params.period as string) || "day";
+          const periodDate = new Date().toISOString().split("T")[0];
+
+          const todo = createTodo({ content, period: period as any, periodDate });
+          return jsonResult({ text: `Todo created: ${todo.id}\n${todo.content}` });
+        } catch (error) {
+          return jsonResult({ text: `Error creating todo: ${error}` });
+        }
+      }
+    });
+
+    // 注册待办事项工具 - 列出待办
+    api.registerTool({
+      name: "clawmemory_list_todos",
+      label: "ClawMemory List Todos",
+      description: "List todo items",
+      parameters: {
+        type: "object",
+        properties: {
+          period: {
+            type: "string",
+            enum: ["day", "week", "month"],
+            description: "Todo period",
+            default: "day"
+          },
+          includeCompleted: {
+            type: "boolean",
+            description: "Include completed todos",
+            default: false
+          }
+        }
+      },
+      execute: async (_toolCallId, params) => {
+        if (!db) {
+          return jsonResult({ text: "Database not initialized" });
+        }
+
+        try {
+          const period = (params.period as string) || "day";
+          const includeCompleted = (params.includeCompleted as boolean) || false;
+          const periodDate = new Date().toISOString().split("T")[0];
+
+          const todos = listTodos(period, periodDate, includeCompleted);
+
+          if (todos.length === 0) {
+            return jsonResult({ text: "No todos found." });
+          }
+
+          const todoText = todos.map((t: any) => {
+            const status = t.completedAt ? "[✓]" : "[ ]";
+            return `${status} ${t.content}`;
+          }).join("\n");
+
+          return jsonResult({ text: `Todos (${period}):\n${todoText}` });
+        } catch (error) {
+          return jsonResult({ text: `Error listing todos: ${error}` });
+        }
+      }
+    });
+
+    // 注册待办事项工具 - 删除待办
+    api.registerTool({
+      name: "clawmemory_delete_todo",
+      label: "ClawMemory Delete Todo",
+      description: "Delete a todo item",
+      parameters: {
+        type: "object",
+        properties: {
+          id: {
+            type: "string",
+            description: "Todo ID"
+          }
+        },
+        required: ["id"]
+      },
+      execute: async (_toolCallId, params) => {
+        if (!db) {
+          return jsonResult({ text: "Database not initialized" });
+        }
+
+        try {
+          const id = params.id as string;
+          const success = deleteTodo(id);
+
+          if (success) {
+            return jsonResult({ text: "Todo deleted successfully." });
+          } else {
+            return jsonResult({ text: "Todo not found." });
+          }
+        } catch (error) {
+          return jsonResult({ text: `Error deleting todo: ${error}` });
+        }
+      }
+    });
+
     // 注册 message_received hook - 捕获原始用户消息并提取元数据
     api.on("message_received", async (event: any) => {
       console.log("[ClawMemory] message_received hook triggered!");
@@ -288,15 +426,22 @@ const clawMemoryPlugin = {
 
         console.log("[ClawMemory] Processing:", content.substring(0, 30));
 
-        // 1. 保存记忆
+        // 1. 生成内容文件路径并保存完整内容
         const memoryId = crypto.randomUUID();
-        const userTokenCount = Math.ceil(content.length / 2);
+        const contentPath = generateContentPath(pluginConfig.dataDir, memoryId, content);
+        writeContentToFile(contentPath, content);
+        
+        // 2. 智能截断摘要并计算 token
+        const summary = smartTruncate(content, MEMORY_CONFIG.SUMMARY_MAX_LENGTH);
+        const userTokenCount = estimateTokenCount(content);
+        
+        // 3. 保存记忆到数据库
         db.prepare(`
           INSERT INTO memories (id, content_path, summary, role, token_count, created_at)
           VALUES (?, ?, ?, 'user', ?, datetime('now'))
-        `).run(memoryId, "", content.substring(0, 20000), userTokenCount);
+        `).run(memoryId, contentPath, summary, userTokenCount);
 
-        console.log("[ClawMemory] Memory saved:", memoryId);
+        console.log("[ClawMemory] Memory saved:", memoryId, "to:", contentPath);
 
         // 2. 提取元数据（标签、关键词、主题）
         try {
@@ -496,21 +641,29 @@ const clawMemoryPlugin = {
             console.error("[ClawMemory] Error extracting metadata:", err);
           }
 
+          // 1. 生成内容文件路径并保存完整内容
           const memoryId = crypto.randomUUID();
-          const aiTokenCount = Math.ceil(content.length / 2);
+          const contentPath = generateContentPath(pluginConfig.dataDir, memoryId, content);
+          writeContentToFile(contentPath, content);
+          
+          // 2. 智能截断摘要并计算 token
+          const summary = smartTruncate(content, MEMORY_CONFIG.SUMMARY_MAX_LENGTH);
+          const aiTokenCount = estimateTokenCount(content);
+          
+          // 3. 保存记忆到数据库
           db.prepare(`
             INSERT INTO memories (id, content_path, summary, role, token_count, content_hash, integrated_summary, created_at)
             VALUES (?, ?, ?, 'assistant', ?, ?, ?, datetime('now'))
           `).run(
             memoryId,
-            "",
-            content.substring(0, 20000),
+            contentPath,
+            summary,
             aiTokenCount,
             contentHash,
             integratedSummary ? JSON.stringify(integratedSummary) : null
           );
 
-          console.log(`[ClawMemory] Saved AI response`);
+          console.log(`[ClawMemory] Saved AI response to:`, contentPath);
 
           // 保存实体关联并创建实体关系
           try {
