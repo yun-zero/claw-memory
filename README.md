@@ -45,13 +45,16 @@
 │  │           @openclaw/claw-memory-plugin                  │    │
 │  │                                                          │    │
 │  │  Hooks:                                                 │    │
-│  │  ├── message:sent  ──▶ 提取 Q&A，保存记忆             │    │
-│  │  └── agent:bootstrap ──▶ 注入记忆摘要到上下文        │    │
+│  │  ├── message_received  ──▶ 提取用户消息实体，保存记忆  │    │
+│  │  ├── before_agent_start ──▶ 注入记忆摘要到上下文       │    │
+│  │  └── agent_end ──▶ 保存 AI 回复，提取实体，创建关系    │    │
 │  │                                                          │    │
 │  │  Tools:                                                 │    │
-│  │  ├── memory_save      保存记忆（带 LLM 元数据提取）    │    │
-│  │  ├── memory_search    搜索记忆                        │    │
-│  │  └── memory_summary   获取记忆摘要                     │    │
+│  │  ├── clawmemory_search      搜索记忆                   │    │
+│  │  ├── clawmemory_summary     获取记忆摘要               │    │
+│  │  ├── clawmemory_create_todo 创建待办事项               │    │
+│  │  ├── clawmemory_list_todos  列出待办事项               │    │
+│  │  └── clawmemory_delete_todo 删除待办事项               │    │
 │  │                                                          │    │
 │  │  Scheduler:                                              │    │
 │  │  ├── 01:00 去重任务                                   │    │
@@ -65,8 +68,9 @@
 │                              ▼                                   │
 │              ┌───────────────────────────────────┐             │
 │              │   ~/.openclaw/claw-memory/        │             │
-│              │   ├── memory.db (SQLite)          │             │
-│              │   └── memories/ (对话文件)        │             │
+│              │   ├── memory.db (SQLite WAL)      │             │
+│              │   └── contents/                   │             │
+│              │       └── YYYY/MM/{uuid}.md       │             │
 │              └───────────────────────────────────┘             │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -75,33 +79,35 @@
 
 ```
 memories (记忆表)
-├── id, content_path, created_at
-├── importance, access_count
-├── token_count
-└── summary, integrated_summary (JSON)
+├── id, content_path, summary, role
+├── token_count, content_hash
+├── importance, access_count, last_accessed_at
+├── is_archived, is_duplicate, duplicate_of
+└── integrated_summary (JSON)
 
 entities (实体表 - 含层级)
 ├── id, name, type, parent_id
-├── level, embedding
+├── level, metadata
 └── type: keyword | tag | subject | person | project
 
 memory_entities (关联表)
 ├── memory_id, entity_id
-└── relevance
+├── relevance, source
+└── source: auto | manual
 
 entity_relations (实体关系图)
 ├── source_id, target_id
-├── relation_type, weight
-└── 支持: related | parent | similar
+├── relation_type, weight, evidence_count
+└── 支持: related | parent | similar | co_occur
 
 time_buckets (时间桶)
 ├── date, memory_count
 └── summary, summary_generated_at
 
 todos (待办事项)
-├── id, content, period
+├── id, content, period, period_date
 ├── completed_at, created_at
-└── type: day | week | month
+└── period: day | week | month
 ```
 
 ## 快速开始
@@ -230,10 +236,17 @@ npm run test         # 运行测试
 数据存储在 `~/.openclaw/claw-memory/` 目录下：
 ```
 ~/.openclaw/claw-memory/
-├── memories/
-│   └── {uuid}.md    # 记忆内容文件
-└── memory.db         # SQLite 数据库
+├── contents/                    # 完整记忆内容文件
+│   └── 2026/                    # 按年份组织
+│       └── 03/                  # 按月份组织
+│           └── {uuid}.md        # 记忆文件
+└── memory.db                    # SQLite 数据库 (WAL 模式)
 ```
+
+**内容存储策略**：
+- 完整内容保存到独立文件（按年/月组织）
+- 数据库存储智能截断的摘要（最大 20000 字符）
+- 自动计算 token 数量用于统计
 
 ## 项目结构
 
@@ -242,11 +255,13 @@ claw-memory/
 ├── src/
 │   ├── index.ts              # CLI 入口
 │   ├── plugin.ts             # OpenClaw 插件入口
+│   ├── constants.ts          # 常量配置
+│   ├── types.ts              # TypeScript 类型定义
 │   ├── config/
-│   │   ├── llm.ts           # LLM 配置
+│   │   ├── llm.ts           # LLM 配置（支持 OpenClaw 配置）
 │   │   └── plugin.ts        # 插件配置管理
 │   ├── db/
-│   │   ├── schema.ts        # 数据库 Schema
+│   │   ├── schema.ts        # 数据库 Schema (WAL 模式优化)
 │   │   ├── repository.ts     # 记忆仓库
 │   │   ├── entityRepository.ts  # 实体仓库
 │   │   └── todoRepository.ts   # 待办仓库
@@ -258,13 +273,14 @@ claw-memory/
 │   │   ├── scheduler.ts     # 定时任务服务
 │   │   ├── tagService.ts    # 标签可视化服务
 │   │   ├── entityGraphService.ts  # 实体关系图服务
-│   │   └── metadataExtractor.ts  # LLM 元数据提取
+│   │   ├── entityRelation.ts  # 实体关系构建
+│   │   ├── metadataExtractor.ts  # LLM 元数据提取
+│   │   └── cache.ts         # 缓存服务
 │   ├── hooks/               # OpenClaw Hooks
-│   │   ├── message.ts       # message:sent Hook
-│   │   └── bootstrap.ts     # agent:bootstrap Hook
-│   ├── tools/               # Agent Tools
-│   │   └── memory.ts        # memory_save/search/summary 工具
-│   └── types.ts             # TypeScript 类型定义
+│   │   └── todos.ts         # 待办事项 Hook
+│   └── utils/               # 工具函数
+│       ├── helpers.ts       # 通用工具
+│       └── error.ts         # 错误处理
 ├── openclaw.plugin.json     # OpenClaw 插件清单
 ├── tests/                   # 测试文件
 ├── docs/
@@ -290,18 +306,24 @@ npm run build
 ## 路线图
 
 - [x] 核心架构设计
-- [x] SQLite 数据模型
+- [x] SQLite 数据模型 (WAL 模式优化)
 - [x] 记忆存储/检索
-- [x] LLM 元数据提取
+- [x] LLM 元数据提取（复用 OpenClaw 配置）
 - [x] 增量摘要更新
 - [x] 定时总结/去重 (scheduler)
 - [x] 层级标签管理
 - [x] 实体关系图查询
+- [x] 实体共现关系自动创建
+- [x] 内容文件存储（按年月组织）
 - [x] OpenClaw 插件集成
-  - [x] message:sent Hook
-  - [x] agent:bootstrap Hook
+  - [x] message_received Hook
+  - [x] before_agent_start Hook
+  - [x] agent_end Hook (保存实体关联)
   - [x] Agent Tools 注册
   - [ ] npm 发布
+- [x] 待办事项管理
+  - [x] create/list/delete 工具
+  - [x] day/week/month 周期
 - [ ] 优化
   - [ ] 语义搜索（可选）
   - [ ] 性能优化
