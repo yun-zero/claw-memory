@@ -30,7 +30,6 @@ export function initializeDatabase(db: Database.Database): void {
       type TEXT NOT NULL,
       parent_id TEXT,
       level INTEGER DEFAULT 0,
-      embedding BLOB,
       metadata JSON,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (parent_id) REFERENCES entities(id)

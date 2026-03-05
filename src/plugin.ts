@@ -11,7 +11,7 @@ import { MemoryRepository } from "./db/repository.js";
 import { MetadataExtractor } from "./services/metadataExtractor.js";
 import { TagService } from "./services/tagService.js";
 import { getMemoryIndex } from "./services/memoryIndex.js";
-import { setLLMConfig } from "./services/embedding.js";
+import { setLLMConfig } from "./config/llm.js";
 
 // 插件配置
 interface PluginConfig {

@@ -6,7 +6,7 @@
   "kind": "memory",
   "configSchema": {
     "type": "object",
-    "additionalProperties": false,
+    "additionalProperties": true,
     "properties": {
       "enabled": {
         "type": "boolean"
@@ -16,6 +16,20 @@
       },
       "dataDir": {
         "type": "string"
+      },
+      "maxContextMemories": {
+        "type": "number"
+      },
+      "enableVector": {
+        "type": "boolean"
+      },
+      "llm": {
+        "type": "object",
+        "properties": {
+          "baseUrl": { "type": "string" },
+          "apiKey": { "type": "string" },
+          "model": { "type": "string" }
+        }
       }
     }
   }

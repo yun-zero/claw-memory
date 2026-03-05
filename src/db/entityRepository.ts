@@ -72,7 +72,6 @@ export class EntityRepository {
       type: row.type as Entity['type'],
       parentId: row.parent_id,
       level: row.level,
-      embedding: row.embedding,
       metadata: row.metadata ? JSON.parse(row.metadata) : null,
       createdAt: new Date(row.created_at)
     };

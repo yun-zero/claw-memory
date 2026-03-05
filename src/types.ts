@@ -43,7 +43,6 @@ export interface Entity {
   type: 'keyword' | 'tag' | 'subject' | 'person' | 'project';
   parentId: string | null;
   level: number;
-  embedding: Buffer | null;
   metadata: Record<string, unknown> | null;
   createdAt: Date;
 }

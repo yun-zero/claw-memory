@@ -1,6 +1,7 @@
 /**
  * LLM Configuration Module
  * Supports OpenAI and Anthropic API keys via environment variables
+ * Also supports OpenClaw native configuration
  */
 
 export interface LLMConfig {
@@ -8,6 +9,24 @@ export interface LLMConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
+}
+
+// 存储 OpenClaw 传入的配置
+let _llmConfig: { baseUrl: string; apiKey: string; model?: string } | null = null;
+
+/**
+ * 设置 OpenClaw 的 LLM 配置（由 plugin.ts 调用）
+ */
+export function setLLMConfig(config: { baseUrl: string; apiKey: string; model?: string }): void {
+  _llmConfig = config;
+  console.log('[ClawMemory] LLM config set from OpenClaw:', { baseUrl: config.baseUrl, model: config.model });
+}
+
+/**
+ * 获取当前 LLM 配置
+ */
+export function getLLMConfigFromOpenClaw(): { baseUrl: string; apiKey: string; model?: string } | null {
+  return _llmConfig;
 }
 
 // Default configuration map for LLM providers
@@ -131,15 +150,5 @@ async function generateWithOpenAI(
 
   const data = await response.json() as { choices: { message: { content: string } }[] };
   return data.choices[0]?.message?.content || '总结生成失败';
-}
-
-export interface EmbeddingConfig {
-  model: string;
-}
-
-export function getEmbeddingConfig(): EmbeddingConfig {
-  return {
-    model: process.env.EMBEDDING_MODEL || 'text-embedding-3-small',
-  };
 }
 
