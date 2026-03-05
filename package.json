@@ -1,8 +1,11 @@
 {
   "name": "@yun-zero/claw-memory",
-  "version": "0.6.8",
+  "version": "0.6.12",
   "description": "OpenClaw 记忆插件 - 自动保存对话，智能注入上下文",
   "main": "dist/plugin.js",
+  "bin": {
+    "claw-memory": "./dist/index.js"
+  },
   "types": "dist/plugin.d.ts",
   "type": "module",
   "exports": {
@@ -17,7 +20,11 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "better-sqlite3"
-    ]
+    ],
+    "supportedArchitectures": {
+      "os": ["linux", "darwin", "win32"],
+      "cpu": ["x64", "arm64"]
+    }
   },
   "scripts": {
     "build": "tsc",
@@ -27,7 +34,8 @@
     "test:watch": "vitest",
     "test:e2e": "vitest run test/e2e",
     "test:stress": "vitest run test/stress",
-    "test:all": "vitest run"
+    "test:all": "vitest run",
+    "postinstall": "cd node_modules/better-sqlite3 && (npx prebuild-install || npm run install) || echo 'better-sqlite3 build skipped'"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",

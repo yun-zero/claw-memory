@@ -1,4 +1,52 @@
-import Database from 'better-sqlite3';
+import { execSync } from 'child_process';
+import path from 'path';
+import type Database from 'better-sqlite3';
+
+// better-sqlite3 模块加载器
+let _Database: typeof Database;
+
+function loadDatabase(): typeof Database {
+  if (_Database) return _Database;
+
+  // 尝试加载并验证 better-sqlite3
+  const tryLoadAndVerify = (): typeof Database => {
+    const mod = require('better-sqlite3');
+    // 尝试创建内存数据库来验证原生模块是否可用
+    try {
+      new mod(':memory:').close();
+      return mod;
+    } catch (e: any) {
+      throw new Error('Native module not available: ' + e.message);
+    }
+  };
+
+  try {
+    _Database = tryLoadAndVerify();
+    return _Database;
+  } catch (e: any) {
+    console.log('[ClawMemory] better-sqlite3 native module not available, attempting to build...');
+    try {
+      // 尝试使用 prebuild-install 下载预编译版本
+      const moduleDir = path.dirname(require.resolve('better-sqlite3/package.json'));
+      execSync('npx prebuild-install', { cwd: moduleDir, stdio: 'inherit' });
+      _Database = tryLoadAndVerify();
+      console.log('[ClawMemory] better-sqlite3 built successfully via prebuild');
+      return _Database;
+    } catch (buildError: any) {
+      console.log('[ClawMemory] prebuild failed, attempting full build...');
+      try {
+        const moduleDir = path.dirname(require.resolve('better-sqlite3/package.json'));
+        execSync('npm run install', { cwd: moduleDir, stdio: 'inherit' });
+        _Database = tryLoadAndVerify();
+        console.log('[ClawMemory] better-sqlite3 built successfully');
+        return _Database;
+      } catch (fullBuildError: any) {
+        console.error('[ClawMemory] Failed to build better-sqlite3:', fullBuildError.message);
+        throw new Error('better-sqlite3 native module not available. Please run: npm rebuild better-sqlite3');
+      }
+    }
+  }
+}
 
 export function initializeDatabase(db: Database.Database): void {
   // 1. 记忆表
@@ -122,6 +170,7 @@ export function getDatabase(dbPath: string = './memories/memory.db'): Database.D
   if (!dbInstance) {
     console.log('[ClawMemory] Creating new database instance...');
     try {
+      const Database = loadDatabase();
       dbInstance = new Database(dbPath);
       console.log('[ClawMemory] Database instance created, initializing...');
       initializeDatabase(dbInstance);
