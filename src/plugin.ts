@@ -12,6 +12,7 @@ import { MetadataExtractor } from "./services/metadataExtractor.js";
 import { TagService } from "./services/tagService.js";
 import { getMemoryIndex } from "./services/memoryIndex.js";
 import { setLLMConfig } from "./config/llm.js";
+import { EntityGraphService } from "./services/entityGraphService.js";
 
 // 插件配置
 interface PluginConfig {
@@ -510,6 +511,89 @@ const clawMemoryPlugin = {
           );
 
           console.log(`[ClawMemory] Saved AI response`);
+
+          // 保存实体关联并创建实体关系
+          try {
+            const metadata = await metadataExtractor.extract(content, undefined);
+            const savedEntityIds: string[] = [];
+
+            // 保存标签
+            for (const tagName of metadata.tags) {
+              let entity = entityRepo.findByName(tagName);
+              if (!entity) {
+                entity = entityRepo.create({ name: tagName, type: "tag", level: 1 });
+              }
+              savedEntityIds.push(entity.id);
+              db.prepare(`
+                INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, relevance, source)
+                VALUES (?, ?, ?, 'auto')
+              `).run(memoryId, entity.id, 1.0);
+            }
+
+            // 保存关键词
+            for (const keyword of metadata.keywords) {
+              let entity = entityRepo.findByName(keyword);
+              if (!entity) {
+                entity = entityRepo.create({ name: keyword, type: "keyword", level: 0 });
+              }
+              savedEntityIds.push(entity.id);
+              db.prepare(`
+                INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, relevance, source)
+                VALUES (?, ?, ?, 'auto')
+              `).run(memoryId, entity.id, 0.8);
+            }
+
+            // 保存主题
+            for (const subject of metadata.subjects) {
+              let entity = entityRepo.findByName(subject);
+              if (!entity) {
+                entity = entityRepo.create({ name: subject, type: "subject", level: 0 });
+              }
+              savedEntityIds.push(entity.id);
+              db.prepare(`
+                INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, relevance, source)
+                VALUES (?, ?, ?, 'auto')
+              `).run(memoryId, entity.id, 0.9);
+            }
+
+            console.log(`[ClawMemory] Saved ${savedEntityIds.length} entity associations`);
+
+            // 创建实体间的共现关系
+            if (savedEntityIds.length >= 2) {
+              const entityGraphService = new EntityGraphService(db);
+              for (let i = 0; i < savedEntityIds.length; i++) {
+                for (let j = i + 1; j < savedEntityIds.length; j++) {
+                  try {
+                    // 检查关系是否已存在
+                    const existingRelation = db.prepare(`
+                      SELECT id, evidence_count FROM entity_relations
+                      WHERE (source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)
+                    `).get(savedEntityIds[i], savedEntityIds[j], savedEntityIds[j], savedEntityIds[i]) as any;
+
+                    if (existingRelation) {
+                      // 增加证据计数
+                      db.prepare(`
+                        UPDATE entity_relations SET evidence_count = evidence_count + 1 WHERE id = ?
+                      `).run(existingRelation.id);
+                    } else {
+                      // 创建新的共现关系
+                      entityGraphService.createRelation(
+                        savedEntityIds[i],
+                        savedEntityIds[j],
+                        'co_occur',
+                        1.0
+                      );
+                    }
+                  } catch (relationErr) {
+                    console.error('[ClawMemory] Error creating relation:', relationErr);
+                  }
+                }
+              }
+              console.log(`[ClawMemory] Created entity relations for co-occurring entities`);
+            }
+          } catch (entityErr) {
+            console.error('[ClawMemory] Error saving entities:', entityErr);
+          }
         }
       } catch (error) {
         console.error("[ClawMemory] Error in agent_end:", error);

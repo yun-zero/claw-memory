@@ -37,6 +37,24 @@ const LLM_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
 };
 
 export function getLLMConfig(): LLMConfig {
+  // 优先使用 OpenClaw 传入的配置
+  if (_llmConfig && _llmConfig.apiKey) {
+    console.log('[ClawMemory] Using LLM config from OpenClaw:', { baseUrl: _llmConfig.baseUrl, model: _llmConfig.model });
+    // 根据 baseUrl 判断格式
+    let format: LLMConfig['format'] = 'openai-compatible';
+    if (_llmConfig.baseUrl.includes('anthropic')) {
+      format = 'anthropic';
+    } else if (_llmConfig.baseUrl.includes('openai.com')) {
+      format = 'openai';
+    }
+    return {
+      format,
+      baseUrl: _llmConfig.baseUrl,
+      apiKey: _llmConfig.apiKey,
+      model: _llmConfig.model || getDefaultModel(format)
+    };
+  }
+
   // DEBUG: getLLMConfig 调用日志
   console.log('[ClawMemory] getLLMConfig() called');
   console.log('[ClawMemory] env LLM_API_KEY:', process.env.LLM_API_KEY ? 'SET' : 'NOT SET');
