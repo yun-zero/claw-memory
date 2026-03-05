@@ -22,10 +22,11 @@ export function setLLMConfig(config: { baseUrl: string; apiKey: string; model?: 
   console.log('[Embedding] LLM config set:', { baseUrl: config.baseUrl, model: config.model || DEFAULT_MODEL });
 }
 
-function getEmbeddingConfig(override?: Partial<EmbeddingConfig>): EmbeddingConfig {
+function getEmbeddingConfig(override?: Partial<EmbeddingConfig>): EmbeddingConfig | null {
   // 使用 OpenClaw 传入的配置
   if (!_llmConfig) {
-    throw new Error('LLM config not set. Please call setLLMConfig() first.');
+    console.warn('[Embedding] LLM config not set. Vector features will be disabled.');
+    return null;
   }
 
   // 根据 LLM baseUrl 推断 embedding 端点
@@ -53,6 +54,10 @@ export async function generateEmbedding(
   config?: Partial<EmbeddingConfig>
 ): Promise<number[]> {
   const embeddingConfig = getEmbeddingConfig(config);
+  
+  if (!embeddingConfig) {
+    throw new Error('LLM config not available. Vector features disabled.');
+  }
 
   console.log('[Embedding] Request:', {
     url: `${embeddingConfig.baseUrl}/embeddings`,
@@ -89,6 +94,10 @@ export async function generateEmbeddings(
   config?: Partial<EmbeddingConfig>
 ): Promise<number[][]> {
   const embeddingConfig = getEmbeddingConfig(config);
+  
+  if (!embeddingConfig) {
+    throw new Error('LLM config not available. Vector features disabled.');
+  }
 
   const response = await fetch(`${embeddingConfig.baseUrl}/embeddings`, {
     method: 'POST',

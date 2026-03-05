@@ -20,6 +20,12 @@ interface PluginConfig {
   autoSave: boolean;
   dataDir: string;
   maxContextMemories: number;
+  enableVector: boolean; // 向量功能开关
+  llm?: {
+    baseUrl: string;
+    apiKey: string;
+    model?: string;
+  };
 }
 
 function getDefaultConfig(dataDir: string): PluginConfig {
@@ -28,7 +34,28 @@ function getDefaultConfig(dataDir: string): PluginConfig {
     autoSave: true,
     dataDir: dataDir,
     maxContextMemories: 3,
+    enableVector: false, // 默认禁用向量功能
   };
+}
+
+/**
+ * 从配置文件加载 LLM 配置
+ */
+function loadLLMConfig(dataDir: string): { baseUrl: string; apiKey: string; model?: string } | null {
+  const configPath = `${dataDir}/config.json`;
+  try {
+    const fs = require('fs');
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      if (config.llm?.apiKey) {
+        console.log('[ClawMemory] Loaded LLM config from file');
+        return config.llm;
+      }
+    }
+  } catch (err) {
+    console.error('[ClawMemory] Failed to load config file:', err);
+  }
+  return null;
 }
 
 // 最小插件定义
@@ -42,48 +69,57 @@ const clawMemoryPlugin = {
   register(api: OpenClawPluginApi) {
     console.log("[ClawMemory] Plugin registered successfully");
 
-    // 获取 OpenClaw 的 LLM 配置
-    try {
-      console.log('[ClawMemory] api.config keys:', Object.keys(api.config || {}));
-      const modelsConfig = (api.config as any).models;
-      console.log('[ClawMemory] modelsConfig exists:', !!modelsConfig);
-      if (modelsConfig?.providers) {
-        // 获取默认 provider 的配置
-        const providers = modelsConfig.providers;
-        const defaultProviderKey = Object.keys(providers)[0];
-        console.log('[ClawMemory] defaultProviderKey:', defaultProviderKey);
-        const providerConfig = providers[defaultProviderKey];
-        console.log('[ClawMemory] providerConfig.apiKey:', providerConfig?.apiKey, typeof providerConfig?.apiKey);
-        if (providerConfig) {
-          // Secret 类型可能是 { value: string } 或直接是 string
-          let apiKey = '';
-          if (providerConfig.apiKey) {
-            if (typeof providerConfig.apiKey === 'object') {
-              // Secret 类型: { value: string } 或 { __secret: string }
-              apiKey = (providerConfig.apiKey as any).value || (providerConfig.apiKey as any).__secret || '';
-            } else {
-              apiKey = providerConfig.apiKey;
-            }
-          }
-          // 如果是引用ID，从环境变量获取实际 key
-          if (!apiKey || apiKey.length < 20) {
-            apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || '';
-          }
-          console.log('[ClawMemory] extracted apiKey:', apiKey ? 'has value' : 'empty');
-          setLLMConfig({
-            baseUrl: providerConfig.baseUrl,
-            apiKey: apiKey,
-            model: providerConfig.models?.[0]?.id
-          });
-        }
-      }
-    } catch (err) {
-      console.error('[ClawMemory] Failed to get LLM config from OpenClaw:', err);
-    }
-
-    // 获取配置
+    // 获取配置 - 先定义dataDir
     const dataDir = api.resolvePath("~/.openclaw/claw-memory");
     const pluginConfig = getDefaultConfig(dataDir);
+
+    if (!pluginConfig.enabled) {
+      console.log("[ClawMemory] Plugin disabled");
+      return;
+    }
+
+    // 获取 LLM 配置 - 优先从配置文件读取
+    let llmConfig = loadLLMConfig(dataDir);
+    
+    if (!llmConfig) {
+      // 回退到从 OpenClaw 获取
+      try {
+        console.log('[ClawMemory] Trying to get LLM config from OpenClaw...');
+        const modelsConfig = (api.config as any).models;
+        if (modelsConfig?.providers) {
+          const providers = modelsConfig.providers;
+          const defaultProviderKey = Object.keys(providers)[0];
+          const providerConfig = providers[defaultProviderKey];
+          if (providerConfig) {
+            let apiKey = '';
+            if (providerConfig.apiKey) {
+              if (typeof providerConfig.apiKey === 'object') {
+                apiKey = (providerConfig.apiKey as any).value || (providerConfig.apiKey as any).__secret || '';
+              } else {
+                apiKey = providerConfig.apiKey;
+              }
+            }
+            if (apiKey) {
+              llmConfig = {
+                baseUrl: providerConfig.baseUrl,
+                apiKey: apiKey,
+                model: providerConfig.models?.[0]?.id
+              };
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[ClawMemory] Failed to get LLM config from OpenClaw:', err);
+      }
+    }
+    
+    // 设置 LLM 配置（如果可用）
+    if (llmConfig) {
+      setLLMConfig(llmConfig);
+      console.log('[ClawMemory] LLM config initialized successfully');
+    } else {
+      console.warn('[ClawMemory] No LLM config available. Vector features will be disabled.');
+    }
 
     if (!pluginConfig.enabled) {
       console.log("[ClawMemory] Plugin disabled");
@@ -233,6 +269,132 @@ const clawMemoryPlugin = {
       }
     });
 
+    // 注册手动更新元数据的工具
+    api.registerTool({
+      name: "clawmemory_update",
+      label: "ClawMemory Manual Update",
+      description: "手动更新指定记忆的标签、实体、关系和摘要。当用户增加新命令或需要手动更新记忆元数据时使用。",
+      parameters: {
+        type: "object",
+        properties: {
+          memoryId: {
+            type: "string",
+            description: "要更新的记忆ID"
+          },
+          tags: {
+            type: "array",
+            items: { type: "string" },
+            description: "新的标签列表"
+          },
+          keywords: {
+            type: "array",
+            items: { type: "string" },
+            description: "新的关键词列表"
+          },
+          subjects: {
+            type: "array",
+            items: { type: "string" },
+            description: "新的主题列表"
+          },
+          summary: {
+            type: "string",
+            description: "新的摘要"
+          },
+          regenerateEmbedding: {
+            type: "boolean",
+            description: "是否重新生成向量嵌入（需要向量功能启用）",
+            default: false
+          }
+        },
+        required: ["memoryId"]
+      },
+      execute: async (_toolCallId, params) => {
+        const memoryId = params.memoryId as string;
+        const tags = params.tags as string[] || [];
+        const keywords = params.keywords as string[] || [];
+        const subjects = params.subjects as string[] || [];
+        const summary = params.summary as string;
+        const regenerateEmbedding = params.regenerateEmbedding as boolean || false;
+
+        if (!db) {
+          return jsonResult({ text: "Database not initialized" });
+        }
+
+        try {
+          // 1. 更新摘要
+          if (summary) {
+            db.prepare(`UPDATE memories SET summary = ? WHERE id = ?`).run(summary, memoryId);
+            console.log(`[ClawMemory] Updated summary for memory ${memoryId}`);
+          }
+
+          // 2. 删除旧的实体关联
+          db.prepare(`DELETE FROM memory_entities WHERE memory_id = ?`).run(memoryId);
+
+          // 3. 重新添加标签实体
+          const entitiesToEmbed: { name: string; id: string; type: string }[] = [];
+          
+          for (const tagName of tags) {
+            let entity = entityRepo.findByName(tagName);
+            if (!entity) {
+              entity = entityRepo.create({ name: tagName, type: "tag", level: 1 });
+            }
+            db.prepare(`
+              INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, relevance, source)
+              VALUES (?, ?, ?, 'manual')
+            `).run(memoryId, entity.id, 1.0);
+            if (entity?.id) entitiesToEmbed.push({ name: entity.name, id: entity.id, type: 'tag' });
+          }
+
+          for (const keyword of keywords) {
+            let entity = entityRepo.findByName(keyword);
+            if (!entity) {
+              entity = entityRepo.create({ name: keyword, type: "keyword", level: 0 });
+            }
+            db.prepare(`
+              INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, relevance, source)
+              VALUES (?, ?, ?, 'manual')
+            `).run(memoryId, entity.id, 0.8);
+            if (entity?.id) entitiesToEmbed.push({ name: entity.name, id: entity.id, type: 'keyword' });
+          }
+
+          for (const subject of subjects) {
+            let entity = entityRepo.findByName(subject);
+            if (!entity) {
+              entity = entityRepo.create({ name: subject, type: "subject", level: 0 });
+            }
+            db.prepare(`
+              INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, relevance, source)
+              VALUES (?, ?, ?, 'manual')
+            `).run(memoryId, entity.id, 0.9);
+            if (entity?.id) entitiesToEmbed.push({ name: entity.name, id: entity.id, type: 'subject' });
+          }
+
+          // 4. 如果启用向量功能且需要重新生成embedding
+          if (regenerateEmbedding && entitiesToEmbed.length > 0) {
+            try {
+              const names = entitiesToEmbed.map(e => e.name);
+              const embeddings = await generateEmbeddings(names);
+              const updateStmt = db.prepare(`UPDATE entities SET embedding = ? WHERE id = ?`);
+              for (let i = 0; i < entitiesToEmbed.length; i++) {
+                if (embeddings[i]) {
+                  updateStmt.run(JSON.stringify(embeddings[i]), entitiesToEmbed[i].id);
+                }
+              }
+              console.log(`[ClawMemory] Regenerated ${embeddings.length} embeddings`);
+            } catch (err) {
+              console.error(`[ClawMemory] Failed to regenerate embeddings:`, err);
+            }
+          }
+
+          return jsonResult({ 
+            text: `Successfully updated memory ${memoryId}:\n- Tags: ${tags.join(', ')}\n- Keywords: ${keywords.join(', ')}\n- Subjects: ${subjects.join(', ')}\n- Summary: ${summary ? 'updated' : 'unchanged'}` 
+          });
+        } catch (error) {
+          return jsonResult({ text: `Error updating memory: ${error}` });
+        }
+      }
+    });
+
     // 注册 message_received hook - 捕获原始用户消息并提取元数据
     api.on("message_received", async (event: any) => {
       console.log("[ClawMemory] message_received hook triggered!");
@@ -315,8 +477,8 @@ const clawMemoryPlugin = {
             if (entity?.id) entitiesToEmbed.push({ name: entity.name, id: entity.id, type: 'subject' });
           }
 
-          // 批量生成 embedding
-          if (entitiesToEmbed.length > 0) {
+          // 批量生成 embedding（仅在启用向量功能时）
+          if (pluginConfig.enableVector && entitiesToEmbed.length > 0) {
             try {
               const names = entitiesToEmbed.map(e => e.name);
               const embeddings = await generateEmbeddings(names);
@@ -330,6 +492,8 @@ const clawMemoryPlugin = {
             } catch (err) {
               console.error(`[ClawMemory] Failed to batch generate embeddings:`, err);
             }
+          } else if (!pluginConfig.enableVector) {
+            console.log(`[ClawMemory] Vector feature disabled, skipping embedding generation`);
           }
 
           console.log("[ClawMemory] Entities saved");
@@ -352,29 +516,33 @@ const clawMemoryPlugin = {
       }
 
       try {
-        // 检查并生成缺失的 embedding
-        console.log("[ClawMemory] Checking for entities without embedding...");
-        const entitiesWithoutEmbedding = db.prepare(`
-          SELECT id, name, type FROM entities WHERE embedding IS NULL LIMIT 10
-        `).all() as { id: string; name: string; type: string }[];
+        // 检查并生成缺失的 embedding（仅在启用向量功能时）
+        if (pluginConfig.enableVector) {
+          console.log("[ClawMemory] Checking for entities without embedding...");
+          const entitiesWithoutEmbedding = db.prepare(`
+            SELECT id, name, type FROM entities WHERE embedding IS NULL LIMIT 10
+          `).all() as { id: string; name: string; type: string }[];
 
-        if (entitiesWithoutEmbedding.length > 0) {
-          console.log(`[ClawMemory] Found ${entitiesWithoutEmbedding.length} entities without embedding, batch generating...`);
-          try {
-            const names = entitiesWithoutEmbedding.map(e => e.name);
-            const embeddings = await generateEmbeddings(names);
-            const updateStmt = db.prepare(`UPDATE entities SET embedding = ? WHERE id = ?`);
-            for (let i = 0; i < entitiesWithoutEmbedding.length; i++) {
-              if (embeddings[i]) {
-                updateStmt.run(JSON.stringify(embeddings[i]), entitiesWithoutEmbedding[i].id);
+          if (entitiesWithoutEmbedding.length > 0) {
+            console.log(`[ClawMemory] Found ${entitiesWithoutEmbedding.length} entities without embedding, batch generating...`);
+            try {
+              const names = entitiesWithoutEmbedding.map(e => e.name);
+              const embeddings = await generateEmbeddings(names);
+              const updateStmt = db.prepare(`UPDATE entities SET embedding = ? WHERE id = ?`);
+              for (let i = 0; i < entitiesWithoutEmbedding.length; i++) {
+                if (embeddings[i]) {
+                  updateStmt.run(JSON.stringify(embeddings[i]), entitiesWithoutEmbedding[i].id);
+                }
               }
+              console.log(`[ClawMemory] ✓ Batch generated ${embeddings.length} embeddings`);
+            } catch (err) {
+              console.error(`[ClawMemory] ✗ Failed to batch generate embeddings:`, err);
             }
-            console.log(`[ClawMemory] ✓ Batch generated ${embeddings.length} embeddings`);
-          } catch (err) {
-            console.error(`[ClawMemory] ✗ Failed to batch generate embeddings:`, err);
+          } else {
+            console.log("[ClawMemory] All entities have embeddings");
           }
         } else {
-          console.log("[ClawMemory] All entities have embeddings");
+          console.log("[ClawMemory] Vector feature disabled, skipping embedding generation");
         }
         // 使用 getMemoryIndex 获取结构化索引
         const index = await getMemoryIndex(db, {

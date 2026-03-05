@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "autoSave": true,
+  "dataDir": "~/.openclaw/claw-memory",
+  "maxContextMemories": 3,
+  "enableVector": false,
+  "llm": {
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
+    "apiKey": "your-api-key-here",
+    "model": "glm-4-flash"
+  }
+}

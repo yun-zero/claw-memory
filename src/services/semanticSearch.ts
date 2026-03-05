@@ -1,7 +1,10 @@
 import { getDatabase } from '../db/schema.js';
 import { generateEmbedding, cosineSimilarity } from './embedding.js';
 
-interface Memory {
+// 向量搜索功能开关 - 可通过环境变量控制
+const VECTOR_SEARCH_ENABLED = process.env.CLAW_MEMORY_VECTOR !== 'false';
+
+export interface Memory {
   id: string;
   summary: string;
   role: string;
@@ -9,7 +12,7 @@ interface Memory {
   embedding?: number[];
 }
 
-interface SearchResult extends Memory {
+export interface SearchResult extends Memory {
   relevanceScore: number;
   matchType: 'keyword' | 'semantic' | 'both';
 }
@@ -19,6 +22,12 @@ export async function semanticSearch(
   query: string,
   limit: number = 10
 ): Promise<SearchResult[]> {
+  // 如果向量搜索被禁用，返回空结果
+  if (!VECTOR_SEARCH_ENABLED) {
+    console.log('[SemanticSearch] Vector search disabled, returning empty results');
+    return [];
+  }
+
   const db = getDatabase();
 
   // 1. 生成查询向量
