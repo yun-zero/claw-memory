@@ -135,8 +135,10 @@ async function generateWithAnthropic(
     throw new Error(`Anthropic API error: ${error}`);
   }
 
-  const data = await response.json() as { content: { text: string }[] };
-  return data.content[0]?.text || '总结生成失败';
+  const data = await response.json() as { content: { type: string; text?: string }[] };
+  // MiniMax 可能返回 thinking 和 text 两种类型，找到 text 类型的内容
+  const textContent = data.content?.find(c => c.type === 'text');
+  return textContent?.text || '总结生成失败';
 }
 
 async function generateWithOpenAI(

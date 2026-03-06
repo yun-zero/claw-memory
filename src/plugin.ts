@@ -138,11 +138,23 @@ const clawMemoryPlugin = {
       initTodos(db);
       console.log("[ClawMemory] Todo repository initialized");
       
-      // 初始化并启动 Scheduler（在 CLI 验证模式下跳过）
-      // 当环境变量 CLAW_MEMORY_SKIP_SCHEDULER=1 时不启动调度器
-      // 这允许 openclaw plugins update 命令正常退出
-      if (process.env.CLAW_MEMORY_SKIP_SCHEDULER === '1') {
-        console.log("[ClawMemory] Skipping scheduler startup (CLAW_MEMORY_SKIP_SCHEDULER=1)");
+      // 初始化并启动 Scheduler
+      // 检测是否在 CLI 验证模式下运行（父进程是 openclaw plugins 命令）
+      const isCliValidation = (() => {
+        try {
+          // 读取父进程的命令行
+          const fs = require('fs');
+          const ppid = process.ppid;
+          const cmdline = fs.readFileSync(`/proc/${ppid}/cmdline`, 'utf-8').replace(/\0/g, ' ');
+          // 如果父进程包含 "plugins" 命令，说明是 CLI 验证模式
+          return cmdline.includes('plugins');
+        } catch {
+          return false;
+        }
+      })();
+
+      if (isCliValidation) {
+        console.log("[ClawMemory] Skipping scheduler (CLI validation mode detected)");
       } else {
         const scheduler = new Scheduler(db);
         scheduler.start();

@@ -407,7 +407,7 @@ export class Scheduler {
     const current = new Date(startDate);
     const end = new Date(endDate);
 
-    while (current < end) {
+    while (current <= end) {
       dates.push(current.toISOString().split('T')[0]);
       current.setDate(current.getDate() + 1);
     }
