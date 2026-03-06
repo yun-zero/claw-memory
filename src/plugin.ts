@@ -138,10 +138,16 @@ const clawMemoryPlugin = {
       initTodos(db);
       console.log("[ClawMemory] Todo repository initialized");
       
-      // 初始化并启动 Scheduler
-      const scheduler = new Scheduler(db);
-      scheduler.start();
-      console.log("[ClawMemory] Scheduler started");
+      // 初始化并启动 Scheduler（在 CLI 验证模式下跳过）
+      // 当环境变量 CLAW_MEMORY_SKIP_SCHEDULER=1 时不启动调度器
+      // 这允许 openclaw plugins update 命令正常退出
+      if (process.env.CLAW_MEMORY_SKIP_SCHEDULER === '1') {
+        console.log("[ClawMemory] Skipping scheduler startup (CLAW_MEMORY_SKIP_SCHEDULER=1)");
+      } else {
+        const scheduler = new Scheduler(db);
+        scheduler.start();
+        console.log("[ClawMemory] Scheduler started");
+      }
       
       console.log("[ClawMemory] Database and services initialized");
     } catch (error) {
