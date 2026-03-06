@@ -7,6 +7,8 @@ import Database from 'better-sqlite3';
 import cron, { ScheduledTask } from 'node-cron';
 import { generateSummaryWithLLM } from '../config/llm.js';
 import { Summarizer } from './summarizer.js';
+import { LlmDeduplicator, MemoryPair } from './llmDeduplicator.js';
+import { formatDate } from '../utils/helpers.js';
 
 /**
  * Scheduler configuration interface
@@ -272,59 +274,123 @@ export class Scheduler {
   }
 
   /**
-   * Executes deduplication task - finds and marks duplicate memories
+   * Finds candidate pairs for deduplication using rule-based pre-filtering
+   * @returns Array of memory pairs that are potential duplicates
    */
-  private async deduplicate(): Promise<void> {
-    console.log('[Scheduler] Running deduplication...');
+  private findDuplicateCandidates(): [MemoryPair, MemoryPair][] {
+    const candidates: [MemoryPair, MemoryPair][] = [];
+    const processed = new Set<string>();
 
-    // Get all non-archived memories that are not already marked as duplicates
     const memories = this.db.prepare(`
-      SELECT id, content_path, importance
+      SELECT id, summary, role, created_at
       FROM memories
       WHERE is_archived = FALSE AND is_duplicate = FALSE
       ORDER BY created_at DESC
     `).all() as any[];
 
-    const processed = new Set<string>();
+    for (let i = 0; i < memories.length; i++) {
+      for (let j = i + 1; j < memories.length; j++) {
+        const mem1 = memories[i];
+        const mem2 = memories[j];
+        const key = `${mem1.id}:${mem2.id}`;
 
-    for (const memory of memories) {
-      if (processed.has(memory.id)) continue;
+        if (processed.has(key)) continue;
 
-      // Find similar memories (via shared entities)
-      const similar = this.db.prepare(`
-        SELECT m2.id, m2.content_path, m2.importance
-        FROM memories m1
-        JOIN memory_entities me1 ON m1.id = me1.memory_id
-        JOIN memory_entities me2 ON me1.entity_id = me2.entity_id
-        JOIN memories m2 ON me2.memory_id = m2.id
-        WHERE m1.id = ? AND m2.id != m1.id
-          AND m2.is_archived = FALSE AND m2.is_duplicate = FALSE
-      `).all(memory.id) as any[];
+        // Rule 1: Shared entities count >= 2
+        const sharedEntities = this.db.prepare(`
+          SELECT COUNT(DISTINCT me1.entity_id) as count
+          FROM memory_entities me1
+          JOIN memory_entities me2 ON me1.entity_id = me2.entity_id
+          WHERE me1.memory_id = ? AND me2.memory_id = ?
+        `).get(mem1.id, mem2.id) as { count: number };
 
-      for (const similarMem of similar) {
-        if (processed.has(similarMem.id)) continue;
+        if (sharedEntities.count >= 2) {
+          candidates.push([
+            { ...mem1, createdAt: new Date(mem1.created_at) },
+            { ...mem2, createdAt: new Date(mem2.created_at) }
+          ]);
+          processed.add(key);
+          continue;
+        }
 
-        // Mark as duplicate
+        // Rule 2: Same day + Same role + Summary keyword overlap
+        const sameDay = mem1.created_at.split('T')[0] === mem2.created_at.split('T')[0];
+        const sameRole = mem1.role === mem2.role;
+
+        if (sameDay && sameRole) {
+          const words1 = new Set<string>(mem1.summary?.split(/\s+/) || []);
+          const words2 = new Set<string>(mem2.summary?.split(/\s+/) || []);
+          const intersection = [...words1].filter((w: string) => words2.has(w) && w.length > 2);
+
+          if (intersection.length >= 3) {
+            candidates.push([
+              { ...mem1, createdAt: new Date(mem1.created_at) },
+              { ...mem2, createdAt: new Date(mem2.created_at) }
+            ]);
+            processed.add(key);
+          }
+        }
+      }
+    }
+
+    return candidates;
+  }
+
+  /**
+   * Executes LLM-based deduplication task
+   */
+  private async deduplicate(): Promise<void> {
+    console.log('[Scheduler] Running LLM-based deduplication...');
+
+    // Step 1: Rule-based pre-filtering to find candidates
+    const candidates = this.findDuplicateCandidates();
+
+    if (candidates.length === 0) {
+      console.log('[Scheduler] No duplicate candidates found');
+      return;
+    }
+
+    console.log(`[Scheduler] Found ${candidates.length} candidate pairs`);
+
+    // Step 2: LLM semantic confirmation
+    const deduplicator = new LlmDeduplicator();
+    const results = await deduplicator.batchCheck(candidates);
+
+    // Step 3: Update database with results
+    let duplicateCount = 0;
+    for (const [key, result] of results) {
+      if (result.isDuplicate && result.confidence > 0.8) {
+        const [mem1Id, mem2Id] = key.split(':');
+
         this.db.prepare(`
           UPDATE memories
           SET is_duplicate = TRUE, duplicate_of = ?
           WHERE id = ?
-        `).run(memory.id, similarMem.id);
+        `).run(mem1Id, mem2Id);
 
-        // Merge importance
-        const newImportance = Math.min(1, memory.importance + similarMem.importance * 0.5);
         this.db.prepare(`
-          UPDATE memories SET importance = ? WHERE id = ?
-        `).run(newImportance, memory.id);
+          UPDATE memories SET importance = MIN(1, importance + 0.1)
+          WHERE id = ?
+        `).run(mem1Id);
 
-        processed.add(similarMem.id);
-        console.log(`[Scheduler] Marked ${similarMem.id} as duplicate of ${memory.id}`);
+        duplicateCount++;
+        console.log(`[Scheduler] Marked ${mem2Id} as duplicate of ${mem1Id}: ${result.reason}`);
       }
-
-      processed.add(memory.id);
     }
 
-    console.log('[Scheduler] Deduplication completed');
+    console.log(`[Scheduler] Deduplication completed: ${duplicateCount} duplicates marked`);
+  }
+
+  /**
+   * Formats memory summaries for LLM input
+   * @param memories - Array of memories with summary, role, and created_at fields
+   * @returns Formatted string for LLM
+   */
+  private formatSummariesForLLM(memories: { summary: string; role: string; created_at: string }[]): string {
+    return memories.map(m => {
+      const time = new Date(m.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      return `[${time}] [${m.role}] ${m.summary || '(无摘要)'}`;
+    }).join('\n');
   }
 
   /**
@@ -347,10 +413,12 @@ export class Scheduler {
       return;
     }
 
-    // 获取当天的记忆
+    // 获取当天的记忆 (直接使用 summary 字段)
     const memories = this.db.prepare(`
-      SELECT id, content_path FROM memories
+      SELECT id, summary, role, created_at
+      FROM memories
       WHERE date(created_at) = date(?)
+      ORDER BY created_at
     `).all(dateStr) as any[];
 
     if (memories.length === 0) {
@@ -358,21 +426,11 @@ export class Scheduler {
       return;
     }
 
-    // 读取记忆内容
-    const fs = await import('fs/promises');
-    const contents: string[] = [];
+    // 格式化内容
+    const content = this.formatSummariesForLLM(memories);
 
-    for (const mem of memories) {
-      try {
-        const content = await fs.readFile(mem.content_path, 'utf-8');
-        contents.push(content.slice(0, 1000));
-      } catch (e) {
-        console.error(`[Scheduler] Failed to read ${mem.content_path}`);
-      }
-    }
-
-    // 构建报告字符串并调用 LLM 生成总结
-    const reportString = `日期: ${dateStr}\n记忆数量: ${memories.length}\n\n记忆内容:\n${contents.join('\n---\n')}`;
+    // 构建报告并调用 LLM
+    const reportString = `日期: ${dateStr}\n记忆数量: ${memories.length}\n\n对话记录:\n${content}`;
 
     try {
       const summary = await generateSummaryWithLLM(reportString);
@@ -412,10 +470,12 @@ export class Scheduler {
       return;
     }
 
-    // Get all memories for this week
+    // Get all memories for this week (直接使用 summary 字段)
     const memories = this.db.prepare(`
-      SELECT id, content_path FROM memories
+      SELECT id, summary, role, created_at
+      FROM memories
       WHERE date(created_at) >= date(?) AND date(created_at) <= date('now')
+      ORDER BY created_at
     `).all(weekStartStr) as any[];
 
     if (memories.length === 0) {
@@ -423,18 +483,8 @@ export class Scheduler {
       return;
     }
 
-    // Read memory contents and generate weekly summary
-    const fs = await import('fs/promises');
-    const contents: string[] = [];
-
-    for (const mem of memories.slice(0, 10)) {
-      try {
-        const content = await fs.readFile(mem.content_path, 'utf-8');
-        contents.push(content.slice(0, 500));
-      } catch (e) {
-        // Skip files that can't be read
-      }
-    }
+    // 格式化内容
+    const content = this.formatSummariesForLLM(memories.slice(0, 50));
 
     const summarizer = new Summarizer(this.db);
     const report = {
@@ -442,7 +492,7 @@ export class Scheduler {
       startDate: weekStartStr,
       endDate: now.toISOString().split('T')[0],
       memoryCount: memories.length,
-      memories: contents
+      memories: content.split('\n')
     };
 
     try {
@@ -476,9 +526,12 @@ export class Scheduler {
       return;
     }
 
+    // 获取当月的记忆 (直接使用 summary 字段)
     const memories = this.db.prepare(`
-      SELECT id FROM memories
+      SELECT id, summary, role, created_at
+      FROM memories
       WHERE date(created_at) >= date(?) AND date(created_at) <= date('now')
+      ORDER BY created_at
     `).all(monthStartStr) as any[];
 
     if (memories.length === 0) {
@@ -486,12 +539,16 @@ export class Scheduler {
       return;
     }
 
+    // 格式化内容
+    const content = this.formatSummariesForLLM(memories.slice(0, 100));
+
     const summarizer = new Summarizer(this.db);
     const report = {
       period: 'month',
       startDate: monthStartStr,
       endDate: now.toISOString().split('T')[0],
-      memoryCount: memories.length
+      memoryCount: memories.length,
+      memories: content.split('\n')
     };
 
     try {
