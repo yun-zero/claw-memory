@@ -257,7 +257,7 @@ export class Scheduler {
         await this.deduplicate();
         break;
       case 'daily':
-        await this.dailySummary();
+        await this.runDailySummaryTask();
         break;
       case 'weekly':
         await this.weeklySummary();
@@ -382,6 +382,40 @@ export class Scheduler {
   }
 
   /**
+   * 获取最后一次日总结的日期
+   * @returns 最后总结日期字符串 (YYYY-MM-DD)，如果没有则返回 null
+   */
+  private getLastSummaryDate(): string | null {
+    const result = this.db.prepare(`
+      SELECT date FROM time_buckets
+      WHERE summary IS NOT NULL
+      ORDER BY date DESC
+      LIMIT 1
+    `).get() as { date: string } | undefined;
+
+    return result?.date || null;
+  }
+
+  /**
+   * 获取两个日期之间的所有日期（包含起始，不包含结束）
+   * @param startDate - 起始日期 (YYYY-MM-DD)
+   * @param endDate - 结束日期 (YYYY-MM-DD)，不包含
+   * @returns 日期数组
+   */
+  private getDatesBetween(startDate: string, endDate: string): string[] {
+    const dates: string[] = [];
+    const current = new Date(startDate);
+    const end = new Date(endDate);
+
+    while (current < end) {
+      dates.push(current.toISOString().split('T')[0]);
+      current.setDate(current.getDate() + 1);
+    }
+
+    return dates;
+  }
+
+  /**
    * Formats memory summaries for LLM input
    * @param memories - Array of memories with summary, role, and created_at fields
    * @returns Formatted string for LLM
@@ -394,43 +428,46 @@ export class Scheduler {
   }
 
   /**
-   * Executes daily summary task - generates summary for previous day's memories
+   * 为指定日期生成日总结
+   * @param targetDate - 目标日期 (YYYY-MM-DD)
    */
-  private async dailySummary(): Promise<void> {
-    console.log('[Scheduler] Running daily summary...');
-
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const dateStr = yesterday.toISOString().split('T')[0];
-
-    // 检查是否已有总结
-    const existing = this.db.prepare(`
-      SELECT summary FROM time_buckets WHERE date = ?
-    `).get(dateStr) as { summary?: string } | undefined;
-
-    if (existing?.summary) {
-      console.log(`[Scheduler] Daily summary for ${dateStr} already exists`);
-      return;
-    }
-
-    // 获取当天的记忆 (直接使用 summary 字段)
+  private async dailySummary(targetDate: string): Promise<void> {
+    // 获取当天的记忆
     const memories = this.db.prepare(`
       SELECT id, summary, role, created_at
       FROM memories
       WHERE date(created_at) = date(?)
       ORDER BY created_at
-    `).all(dateStr) as any[];
+    `).all(targetDate) as any[];
 
     if (memories.length === 0) {
-      console.log(`[Scheduler] No memories for ${dateStr}, skipping`);
+      console.log(`[Scheduler] No memories for ${targetDate}, skipping`);
       return;
+    }
+
+    // 检查已有总结
+    const existing = this.db.prepare(`
+      SELECT summary, memory_count FROM time_buckets WHERE date = ?
+    `).get(targetDate) as { summary?: string; memory_count?: number } | undefined;
+
+    // 如果已有总结且记忆数量一致，跳过
+    if (existing?.summary && existing.memory_count === memories.length) {
+      console.log(`[Scheduler] Daily summary for ${targetDate} already up-to-date (${memories.length} memories)`);
+      return;
+    }
+
+    // 有新记忆需要更新，或首次生成
+    if (existing?.summary) {
+      console.log(`[Scheduler] Updating daily summary for ${targetDate} (${existing.memory_count} -> ${memories.length} memories)`);
+    } else {
+      console.log(`[Scheduler] Generating daily summary for ${targetDate} (${memories.length} memories)`);
     }
 
     // 格式化内容
     const content = this.formatSummariesForLLM(memories);
 
     // 构建报告并调用 LLM
-    const reportString = `日期: ${dateStr}\n记忆数量: ${memories.length}\n\n对话记录:\n${content}`;
+    const reportString = `日期: ${targetDate}\n记忆数量: ${memories.length}\n\n对话记录:\n${content}`;
 
     try {
       const summary = await generateSummaryWithLLM(reportString);
@@ -439,12 +476,90 @@ export class Scheduler {
       this.db.prepare(`
         INSERT OR REPLACE INTO time_buckets (date, summary, summary_generated_at, memory_count)
         VALUES (?, ?, datetime('now'), ?)
-      `).run(dateStr, summary, memories.length);
+      `).run(targetDate, summary, memories.length);
 
-      console.log(`[Scheduler] Daily summary generated for ${dateStr}`);
+      console.log(`[Scheduler] Daily summary saved for ${targetDate}`);
     } catch (error) {
-      console.error('[Scheduler] Failed to generate daily summary:', error);
+      console.error(`[Scheduler] Failed to generate daily summary for ${targetDate}:`, error);
     }
+  }
+
+  /**
+   * 执行日总结任务 - 每次运行都检查并补充缺失的总结
+   *
+   * 逻辑：
+   * 1. 获取最后一次总结的日期
+   * 2. 从该日期 +1 天到昨天，检查每一天
+   * 3. 如果有记忆但没有总结，生成总结
+   */
+  private async runDailySummaryTask(): Promise<void> {
+    console.log('[Scheduler] Running daily summary task...');
+
+    // 获取昨天日期
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+    // 获取最后一次总结的日期
+    const lastSummaryDate = this.getLastSummaryDate();
+
+    // 确定起始日期：最后一次总结 +1 天，或者最早记忆的日期
+    let startDate: string;
+    if (lastSummaryDate) {
+      const nextDay = new Date(lastSummaryDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+      startDate = nextDay.toISOString().split('T')[0];
+    } else {
+      // 没有任何总结，从最早有记忆的日期开始
+      const earliest = this.db.prepare(`
+        SELECT date(created_at) as date FROM memories
+        ORDER BY created_at ASC LIMIT 1
+      `).get() as { date: string } | undefined;
+      startDate = earliest?.date || yesterdayStr;
+    }
+
+    // 获取需要检查的日期列表
+    const datesToCheck = this.getDatesBetween(startDate, yesterdayStr);
+
+    if (datesToCheck.length === 0) {
+      console.log('[Scheduler] No dates need summary');
+      return;
+    }
+
+    console.log(`[Scheduler] Checking ${datesToCheck.length} dates for missing summaries (${startDate} to ${yesterdayStr})`);
+
+    // 依次处理每个日期
+    for (const date of datesToCheck) {
+      // 检查该日期是否有记忆
+      const memoryCount = this.db.prepare(`
+        SELECT COUNT(*) as count FROM memories WHERE date(created_at) = date(?)
+      `).get(date) as { count: number };
+
+      if (memoryCount.count === 0) {
+        continue; // 没有记忆，跳过
+      }
+
+      // 检查是否已有总结
+      const existing = this.db.prepare(`
+        SELECT summary FROM time_buckets WHERE date = ?
+      `).get(date) as { summary?: string } | undefined;
+
+      if (existing?.summary) {
+        // 已有总结，检查是否需要增量更新
+        const summaryInfo = this.db.prepare(`
+          SELECT memory_count FROM time_buckets WHERE date = ?
+        `).get(date) as { memory_count: number } | undefined;
+
+        if (summaryInfo && summaryInfo.memory_count === memoryCount.count) {
+          continue; // 总结已是最新的
+        }
+      }
+
+      // 需要生成或更新总结
+      await this.dailySummary(date);
+    }
+
+    console.log('[Scheduler] Daily summary task completed');
   }
 
   /**
